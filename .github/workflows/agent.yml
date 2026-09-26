@@ -1,0 +1,50 @@
+name: agent
+
+on:
+  pull_request:
+    paths:
+      - "services/agent/**"
+      - ".github/workflows/agent.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "services/agent/**"
+      - ".github/workflows/agent.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: services/agent
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for sources
+        id: check
+        run: |
+          if [ -f CMakeLists.txt ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::services/agent: CMakeLists.txt не найден, собирать нечего"
+          fi
+
+      - name: Configure
+        if: steps.check.outputs.found == 'true'
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        if: steps.check.outputs.found == 'true'
+        run: cmake --build build --parallel
+
+      - name: Test
+        if: steps.check.outputs.found == 'true'
+        run: ctest --test-dir build --output-on-failure --no-tests=ignore

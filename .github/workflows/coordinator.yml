@@ -1,0 +1,61 @@
+name: coordinator
+
+on:
+  pull_request:
+    paths:
+      - "services/coordinator/**"
+      - ".github/workflows/coordinator.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "services/coordinator/**"
+      - ".github/workflows/coordinator.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: services/coordinator
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for sources
+        id: check
+        run: |
+          if find . -maxdepth 1 \( -name '*.sln' -o -name '*.slnx' -o -name '*.csproj' \) | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::services/coordinator: .sln/.slnx/.csproj не найден, собирать нечего"
+          fi
+          if [ -f global.json ]; then
+            echo "global_json=services/coordinator/global.json" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up .NET
+        if: steps.check.outputs.found == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          # Версию берём из global.json, если он есть, иначе .NET 10
+          global-json-file: ${{ steps.check.outputs.global_json }}
+          dotnet-version: ${{ steps.check.outputs.global_json == '' && '10.0.x' || '' }}
+
+      - name: Restore
+        if: steps.check.outputs.found == 'true'
+        run: dotnet restore
+
+      - name: Build
+        if: steps.check.outputs.found == 'true'
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Test
+        if: steps.check.outputs.found == 'true'
+        run: dotnet test --no-build --configuration Release
