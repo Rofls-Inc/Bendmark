@@ -1,0 +1,32 @@
+# C++
+build/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.exe
+
+# C#
+bin/
+obj/
+*.user
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# IDE
+.idea/
+.vs/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# env
+.env
