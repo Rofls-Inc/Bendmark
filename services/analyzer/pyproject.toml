@@ -1,0 +1,10 @@
+[project]
+name = "bendmark-analyzer"
+version = "0.1.0"
+description = "Анализатор Bendmark: находит предел сервиса по результату прогона"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
