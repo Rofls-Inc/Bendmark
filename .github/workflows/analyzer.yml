@@ -1,0 +1,58 @@
+name: analyzer
+
+on:
+  pull_request:
+    paths:
+      - "services/analyzer/**"
+      - ".github/workflows/analyzer.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "services/analyzer/**"
+      - ".github/workflows/analyzer.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: services/analyzer
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for sources
+        id: check
+        run: |
+          if find . -name '*.py' -not -path './.venv/*' | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::services/analyzer: .py файлов нет, тестировать нечего"
+          fi
+
+      - name: Set up Python
+        if: steps.check.outputs.found == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: steps.check.outputs.found == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          if [ -f pyproject.toml ]; then pip install -e .; fi
+          pip install pytest
+
+      - name: Test
+        if: steps.check.outputs.found == 'true'
+        run: |
+          # код 5 у pytest = тестов не найдено, это не ошибка
+          python -m pytest -v || [ $? -eq 5 ]
