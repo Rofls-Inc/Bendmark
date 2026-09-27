@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 
 namespace Bendmark.Coordinator;
 
-// Хранилище в памяти: после перезапуска всё пропадает (позже замменим)
+// Хранилище в памяти: после перезапуска всё пропадает (позже заменим)
 public class RunStore
 {
     private readonly ConcurrentDictionary<Guid, Run> _runs = new();

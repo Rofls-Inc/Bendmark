@@ -7,6 +7,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
+    options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict;
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower));
 });
 
@@ -32,3 +33,4 @@ app.MapGet("/runs/{id:guid}", (Guid id, RunStore store) =>
     store.Get(id) is { } run ? Results.Ok(run) : Results.NotFound());
 
 app.Run();
+

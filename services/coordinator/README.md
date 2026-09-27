@@ -42,6 +42,9 @@ curl -i http://localhost:5080/runs/00000000-0000-0000-0000-000000000000
 # некорректный сценарий в JSON -> 400 с ошибками по полям
 curl -i -X POST http://localhost:5080/runs -H "Content-Type: application/json" -d "@examples/invalid-scenario.json"
 
+# значение не того типа -> 400 с ошибкой поля steps[1].target_rps
+curl -i -X POST http://localhost:5080/runs -H "Content-Type: application/json" -d "@examples/wrong-type-scenario.json"
+
 # битый YAML -> 400
 curl -i -X POST http://localhost:5080/runs -H "Content-Type: application/yaml" --data-binary "name: ["
 

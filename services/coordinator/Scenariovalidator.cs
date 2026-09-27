@@ -48,13 +48,14 @@ public static class ScenarioValidator
                     Add($"steps[{i}]", "Пустая ступень");
                     continue;
                 }
-                if (step.TargetRps <= 0)
-                    Add($"steps[{i}].target_rps", "Должно быть больше нуля");
-                if (step.DurationSeconds <= 0)
-                    Add($"steps[{i}].duration_seconds", "Должно быть больше нуля");
+                if (!IsPositive(step.TargetRps))
+                    Add($"steps[{i}].target_rps", "Должно быть конечным числом больше нуля");
+                if (!IsPositive(step.DurationSeconds))
+                    Add($"steps[{i}].duration_seconds", "Должно быть конечным числом больше нуля");
             }
         }
 
         return errors;
     }
+    private static bool IsPositive(double value) => double.IsFinite(value) && value > 0;
 }

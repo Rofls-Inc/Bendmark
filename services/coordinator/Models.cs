@@ -1,4 +1,5 @@
 namespace Bendmark.Coordinator;
+
 public record Target
 {
     public string? Url { get; init; }
@@ -7,8 +8,8 @@ public record Target
 
 public record Step
 {
-    public int TargetRps { get; init; }
-    public int DurationSeconds { get; init; }
+    public double TargetRps { get; init; }
+    public double DurationSeconds { get; init; }
 }
 
 public record Scenario
