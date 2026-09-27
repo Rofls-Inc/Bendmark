@@ -25,11 +25,17 @@ def main(argv: list[str] | None = None) -> int:
         default=0.5,
         help="минимальный прирост пропускной на единицу прироста нагрузки (по умолчанию 0.5)",
     )
+    parser.add_argument(
+        "--max-error-percent",
+        type=float,
+        default=1.0,
+        help="порог доли ошибок в процентах (по умолчанию 1)",
+    )
     args = parser.parse_args(argv)
 
     try:
         steps = load_result(args.result)
-        limit = find_limit(steps, args.p99_ms, args.min_gain)
+        limit = find_limit(steps, args.p99_ms, args.min_gain, args.max_error_percent)
     except (OSError, ValueError) as e:
         print(f"Ошибка: {e}", file=sys.stderr)
         return 1

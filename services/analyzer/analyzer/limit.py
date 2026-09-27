@@ -16,23 +16,15 @@ class LimitResult:
         return self.failed_step is not None
 
 
-def find_limit(steps: list[Step], p99_threshold_ms: float, min_gain: float = 0.5) -> LimitResult:
-
-    """Находит предел сервиса
-
-    Ступень считается отказом, если выполнено хотя бы одно:
-    - p99 больше p99_threshold_ms
-    - пропускная перестала расти: прирост пропускной, разделенный на прирост целевой нагрузки относительно предыдущей ступени, меньше min_gain. Для первой ступени сравнение идёт с нулём, т.е. проверяется throughput / target
-
-    Предел - целевая нагрузка последней ступени перед первым отказом.
-    """
-
+def find_limit(steps: list[Step], p99_threshold_ms: float, min_gain: float = 0.5, max_error_percent: float = 1.0) -> LimitResult:
     if not steps:
         raise ValueError("в результате нет ни одной ступени")
     if p99_threshold_ms <= 0:
         raise ValueError("порог p99 должен быть больше нуля")
     if min_gain <= 0:
         raise ValueError("min_gain должен быть больше нуля")
+    if max_error_percent < 0:
+        raise ValueError("порог ошибок не может быть отрицательным")
 
     prev_target, prev_throughput = 0.0, 0.0
     last_ok: Step | None = None
@@ -54,6 +46,11 @@ def find_limit(steps: list[Step], p99_threshold_ms: float, min_gain: float = 0.5
                 f"пропускная выросла на {throughput_delta:g} запр/с "
                 f"при росте нагрузки на {target_delta:g} запр/с"
             )
+
+        if step.request_count > 0:
+            error_percent = step.error_count / step.request_count * 100
+            if error_percent > max_error_percent:
+                reasons.append(f"ошибок {error_percent:.1f} % при пороге {max_error_percent:g} %")
 
         if reasons:
             return LimitResult(
