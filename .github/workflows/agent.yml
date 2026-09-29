@@ -48,3 +48,7 @@ jobs:
       - name: Test
         if: steps.check.outputs.found == 'true'
         run: ctest --test-dir build --output-on-failure --no-tests=ignore
+
+      - name: Install libcurl
+        if: steps.check.outputs.found == 'true'
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
