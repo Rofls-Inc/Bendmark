@@ -357,6 +357,7 @@ k6, Gatling и Locust умеют подавать нагрузку и рисов
 
 - Ветки: `main`, `dev`, `feature/*`
 - В `dev` и `main` только через Pull Request с ревью
+- Задачи вливаются в `dev`. В конце каждого спринта, после демо, `dev` вливается в `main` через Pull Request «Спринт N», а на `main` ставится тег `v0.N`. В `main` всегда лежит то, что показали на последнем демо
 - Коммиты: `feat`, `fix`, `refactor`, `docs`, `chore`
 - Задачи — в [Issues](https://github.com/Rofls-Inc/Bendmark/issues)
 
