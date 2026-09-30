@@ -58,7 +58,12 @@ int main(int argc, char** argv) {
     }
 
     LoadGenerator gen(cfg);
-    std::vector<long> latencies = gen.run();
+    std::vector<RequestResult> results = gen.run();
+
+    if (results.empty()) {
+        std::cerr << "No requests were sent\n";
+        return 1;
+    }
 
     std::ostream* out = &std::cout;
     std::ofstream file;
@@ -71,9 +76,25 @@ int main(int argc, char** argv) {
         out = &file;
     }
 
-    for (long us : latencies) {
-        *out << std::fixed << std::setprecision(3)
-             << (us / 1000.0) << "\n";
+    long success_count = 0;
+    long fail_count = 0;
+
+    for (const auto& r : results) {
+        if (r.success) {
+            ++success_count;
+            *out << std::fixed << std::setprecision(3)
+                 << (r.latency_us / 1000.0) << "\n";
+        } else {
+            ++fail_count;
+            std::cerr << "request failed: " << r.error
+                      << " (after " << std::fixed << std::setprecision(1)
+                      << (r.latency_us / 1000.0) << " ms)\n";
+        }
+    }
+
+    if (success_count == 0) {
+        std::cerr << "All " << fail_count << " requests failed\n";
+        return 1;
     }
 
     return 0;

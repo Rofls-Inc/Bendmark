@@ -12,11 +12,17 @@ struct LoadConfig {
     long timeout_ms = 5000;
 };
 
+struct RequestResult {
+    bool success = false;
+    long latency_us = 0;
+    std::string error;
+};
+
 class LoadGenerator {
 public:
     explicit LoadGenerator(LoadConfig cfg);
 
-    std::vector<long> run();
+    std::vector<RequestResult> run();
 
 private:
     LoadConfig cfg_;

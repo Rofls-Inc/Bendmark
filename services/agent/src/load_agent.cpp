@@ -11,9 +11,14 @@ size_t discard_body(char*, size_t size, size_t nmemb, void*) {
     return size * nmemb;
 }
 
-long do_request(const std::string& url, long timeout_ms) {
+RequestResult do_request(const std::string& url, long timeout_ms) {
+    RequestResult r;
+    
     CURL* curl = curl_easy_init();
-    if (!curl) return -1;
+    if (!curl) {
+        r.error = "curl_easy_init failed";
+        return r;
+    }
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_body);
@@ -23,22 +28,29 @@ long do_request(const std::string& url, long timeout_ms) {
     curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
 
     auto start = std::chrono::steady_clock::now();
-    curl_easy_perform(curl);
+    CURLcode rc = curl_easy_perform(curl);
     auto end = std::chrono::steady_clock::now();
 
-    curl_easy_cleanup(curl);
+    r.latency_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
 
-    return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    if (rc == CURLE_OK) {
+        r.success = true;
+    } else {
+        r.error = curl_easy_strerror(rc);
+    }
+
+    curl_easy_cleanup(curl);
+    return r;
 }
 
 } // namespace
 
 LoadGenerator::LoadGenerator(LoadConfig cfg) : cfg_(std::move(cfg)) {}
 
-std::vector<long> LoadGenerator::run() {
+std::vector<RequestResult> LoadGenerator::run() {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    std::vector<long> latencies;
+    std::vector<RequestResult> results;
     std::mutex results_mtx;
     std::vector<std::thread> threads;
     int in_flight = 0;
@@ -59,11 +71,11 @@ std::vector<long> LoadGenerator::run() {
         }
 
         threads.emplace_back([&, url = cfg_.url, timeout = cfg_.timeout_ms] {
-            long lat = do_request(url, timeout);
+            RequestResult r = do_request(url, timeout);
 
             {
                 std::lock_guard<std::mutex> lk(results_mtx);
-                latencies.push_back(lat);
+                results.push_back(std::move(r));
             }
             {
                 std::lock_guard<std::mutex> lk(in_flight_mtx);
@@ -75,5 +87,5 @@ std::vector<long> LoadGenerator::run() {
     for (auto& t : threads) t.join();
 
     curl_global_cleanup();
-    return latencies;
+    return results;
 }
