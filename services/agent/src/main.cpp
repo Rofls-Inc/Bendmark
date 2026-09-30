@@ -13,9 +13,7 @@ void print_usage(const char* prog) {
         << "Options:\n"
         << "  --concurrency N   max parallel requests (default 16)\n"
         << "  --timeout MS      per-request timeout in ms (default 5000)\n"
-        << "  --output FILE     write latencies to file (ms, one per line)\n"
-        << "\nExample:\n"
-        << "  " << prog << " https://example.com 50 10 --output out.txt\n";
+        << "  --output FILE     write latencies to file (ms, one per line)\n";
 }
 
 } // namespace
@@ -58,11 +56,11 @@ int main(int argc, char** argv) {
     }
 
     LoadGenerator gen(cfg);
-    std::vector<RequestResult> results = gen.run();
+    RunResult result = gen.run();
 
-    if (results.empty()) {
+    if (result.requests.empty() && result.skipped == 0) {
         std::cerr << "No requests were sent\n";
-        return 1;
+        return 3;
     }
 
     std::ostream* out = &std::cout;
@@ -79,7 +77,7 @@ int main(int argc, char** argv) {
     long success_count = 0;
     long fail_count = 0;
 
-    for (const auto& r : results) {
+    for (const auto& r : result.requests) {
         if (r.success) {
             ++success_count;
             *out << std::fixed << std::setprecision(3)
@@ -92,9 +90,19 @@ int main(int argc, char** argv) {
         }
     }
 
+    if (result.skipped > 0) {
+        long long sent = static_cast<long long>(result.requests.size());
+        long long planned = sent + result.skipped;
+        double actual_rate = cfg.rate_per_sec * static_cast<double>(sent) / planned;
+        std::cerr << "[warn] skipped " << result.skipped << " of " << planned
+                  << " planned requests; actual rate ~"
+                  << std::fixed << std::setprecision(2) << actual_rate
+                  << " req/s (requested " << cfg.rate_per_sec << ")\n";
+    }
+
     if (success_count == 0) {
         std::cerr << "All " << fail_count << " requests failed\n";
-        return 1;
+        return 2;
     }
 
     return 0;

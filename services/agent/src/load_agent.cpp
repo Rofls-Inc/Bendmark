@@ -13,7 +13,7 @@ size_t discard_body(char*, size_t size, size_t nmemb, void*) {
 
 RequestResult do_request(const std::string& url, long timeout_ms) {
     RequestResult r;
-    
+
     CURL* curl = curl_easy_init();
     if (!curl) {
         r.error = "curl_easy_init failed";
@@ -47,10 +47,10 @@ RequestResult do_request(const std::string& url, long timeout_ms) {
 
 LoadGenerator::LoadGenerator(LoadConfig cfg) : cfg_(std::move(cfg)) {}
 
-std::vector<RequestResult> LoadGenerator::run() {
+RunResult LoadGenerator::run() {
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    std::vector<RequestResult> results;
+    RunResult out;
     std::mutex results_mtx;
     std::vector<std::thread> threads;
     int in_flight = 0;
@@ -67,7 +67,10 @@ std::vector<RequestResult> LoadGenerator::run() {
 
         {
             std::lock_guard<std::mutex> lk(in_flight_mtx);
-            if (in_flight >= cfg_.concurrency) continue;
+            if (in_flight >= cfg_.concurrency) {
+                ++out.skipped;
+                continue;
+            }
             ++in_flight;
         }
 
@@ -76,7 +79,7 @@ std::vector<RequestResult> LoadGenerator::run() {
 
             {
                 std::lock_guard<std::mutex> lk(results_mtx);
-                results.push_back(std::move(r));
+                out.requests.push_back(std::move(r));
             }
             {
                 std::lock_guard<std::mutex> lk(in_flight_mtx);
@@ -88,5 +91,12 @@ std::vector<RequestResult> LoadGenerator::run() {
     for (auto& t : threads) t.join();
 
     curl_global_cleanup();
-    return results;
+
+    if (out.skipped > 0) {
+        std::cerr << "[warn] skipped " << out.skipped
+                  << " scheduled requests (concurrency limit reached; "
+                  << "actual rate lower than requested)\n";
+    }
+
+    return out;
 }

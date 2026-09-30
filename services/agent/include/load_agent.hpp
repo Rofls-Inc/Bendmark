@@ -18,11 +18,16 @@ struct RequestResult {
     std::string error;
 };
 
+struct RunResult {
+    std::vector<RequestResult> requests;
+    long long skipped = 0;
+};
+
 class LoadGenerator {
 public:
     explicit LoadGenerator(LoadConfig cfg);
 
-    std::vector<RequestResult> run();
+    RunResult run();
 
 private:
     LoadConfig cfg_;
