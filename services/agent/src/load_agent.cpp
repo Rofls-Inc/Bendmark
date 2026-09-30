@@ -57,10 +57,11 @@ std::vector<RequestResult> LoadGenerator::run() {
     std::mutex in_flight_mtx;
 
     const auto interval = std::chrono::duration<double>(1.0 / cfg_.rate_per_sec);
-    const auto end_time = std::chrono::steady_clock::now() + cfg_.duration;
-    auto next_tick = std::chrono::steady_clock::now();
+    const auto start_time = std::chrono::steady_clock::now();
+    const auto end_time = start_time + cfg_.duration;
+    auto next_tick = start_time;
 
-    while (std::chrono::steady_clock::now() < end_time) {
+    while (next_tick < end_time) {
         std::this_thread::sleep_until(next_tick);
         next_tick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval);
 
