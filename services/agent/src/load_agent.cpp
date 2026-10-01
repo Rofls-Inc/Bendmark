@@ -1,10 +1,14 @@
 #include "load_agent.hpp"
 
 #include <curl/curl.h>
+#include <algorithm>
 #include <condition_variable>
+#include <cstdio>
+#include <fstream>
 #include <mutex>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -42,6 +46,23 @@ RequestResult do_request(const std::string& url, long timeout_ms) {
 
     curl_easy_cleanup(curl);
     return r;
+}
+
+double percentile_ms(const std::vector<long>& sorted_us, double p) {
+    if (sorted_us.empty()) return 0.0;
+    size_t idx = static_cast<size_t>(p * (sorted_us.size() - 1));
+    return sorted_us[idx] / 1000.0;
+}
+
+void write_double(std::ostream& os, double v) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.2f", v);
+    std::string s(buf);
+    if (s.find('.') != std::string::npos) {
+        while (!s.empty() && s.back() == '0') s.pop_back();
+        if (!s.empty() && s.back() == '.') s.pop_back();
+    }
+    os << s;
 }
 
 } // namespace
@@ -116,4 +137,63 @@ RunResult LoadGenerator::run() {
     curl_global_cleanup();
 
     return out;
+}
+
+StepStats compute_step_stats(const LoadConfig& cfg, const RunResult& run) {
+    StepStats s;
+    s.target_rps = cfg.rate_per_sec;
+    s.duration_seconds = static_cast<int>(cfg.duration.count());
+
+    std::vector<long> latencies;
+    latencies.reserve(run.requests.size());
+
+    for (const auto& r : run.requests) {
+        if (r.success) {
+            latencies.push_back(r.latency_us);
+        } else {
+            ++s.error_count;
+        }
+    }
+
+    s.request_count = static_cast<long long>(latencies.size());
+
+    double secs = static_cast<double>(s.duration_seconds);
+    s.throughput_rps = secs > 0 ? static_cast<double>(s.request_count) / secs : 0.0;
+
+    long long total = static_cast<long long>(run.requests.size()) + run.skipped;
+    if (total > 0) {
+        s.error_rate_percent = 100.0 * static_cast<double>(s.error_count) / static_cast<double>(total);
+    }
+
+    if (!latencies.empty()) {
+        std::sort(latencies.begin(), latencies.end());
+        s.latency_p50_ms = percentile_ms(latencies, 0.50);
+        s.latency_p90_ms = percentile_ms(latencies, 0.90);
+        s.latency_p99_ms = percentile_ms(latencies, 0.99);
+    }
+
+    return s;
+}
+
+bool write_result_json(const std::string& path, const StepStats& s) {
+    std::ofstream out(path);
+    if (!out) return false;
+
+    out << "{\n";
+    out << "  \"target_rps\": ";        write_double(out, s.target_rps);    out << ",\n";
+    out << "  \"duration_seconds\": " << s.duration_seconds << ",\n";
+    out << "  \"request_count\": "    << s.request_count    << ",\n";
+    out << "  \"throughput_rps\": ";  write_double(out, s.throughput_rps); out << ",\n";
+    out << "  \"latency_ms\": { "
+        << "\"p50\": "; write_double(out, s.latency_p50_ms);
+    out << ", \"p90\": "; write_double(out, s.latency_p90_ms);
+    out << ", \"p99\": "; write_double(out, s.latency_p99_ms);
+    out << " },\n";
+    out << "  \"errors\": { "
+        << "\"count\": " << s.error_count
+        << ", \"rate_percent\": "; write_double(out, s.error_rate_percent);
+    out << " }\n";
+    out << "}\n";
+
+    return static_cast<bool>(out);
 }

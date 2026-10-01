@@ -32,3 +32,19 @@ public:
 private:
     LoadConfig cfg_;
 };
+
+struct StepStats {
+    double target_rps = 0.0;
+    int duration_seconds = 0;
+    long long request_count = 0;
+    double throughput_rps = 0.0;
+    double latency_p50_ms = 0.0;
+    double latency_p90_ms = 0.0;
+    double latency_p99_ms = 0.0;
+    long long error_count = 0;
+    double error_rate_percent = 0.0;
+};
+
+StepStats compute_step_stats(const LoadConfig& cfg, const RunResult& run);
+
+bool write_result_json(const std::string& path, const StepStats& stats);
