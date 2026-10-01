@@ -37,6 +37,10 @@ jobs:
             echo "::notice::services/agent: CMakeLists.txt не найден, собирать нечего"
           fi
 
+      - name: Install libcurl
+        if: steps.check.outputs.found == 'true'
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+
       - name: Configure
         if: steps.check.outputs.found == 'true'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
