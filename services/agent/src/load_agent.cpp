@@ -1,9 +1,10 @@
 #include "load_agent.hpp"
 
 #include <curl/curl.h>
-#include <iostream>
+#include <condition_variable>
 #include <mutex>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -52,9 +53,35 @@ RunResult LoadGenerator::run() {
 
     RunResult out;
     std::mutex results_mtx;
-    std::vector<std::thread> threads;
-    int in_flight = 0;
-    std::mutex in_flight_mtx;
+    std::mutex work_mtx;
+    std::condition_variable work_cv;
+    std::vector<std::thread> workers;
+    int outstanding = 0;
+    int pending = 0;
+    bool stopping = false;
+
+    for (int i = 0; i < cfg_.concurrency; ++i) {
+        workers.emplace_back([&, url = cfg_.url, timeout = cfg_.timeout_ms] {
+            while (true) {
+                {
+                    std::unique_lock<std::mutex> lk(work_mtx);
+                    work_cv.wait(lk, [&] { return pending > 0 || stopping; });
+                    if (pending == 0) return;
+                    --pending;
+                }
+
+                RequestResult r = do_request(url, timeout);
+                {
+                    std::lock_guard<std::mutex> lk(results_mtx);
+                    out.requests.push_back(std::move(r));
+                }
+                {
+                    std::lock_guard<std::mutex> lk(work_mtx);
+                    --outstanding;
+                }
+            }
+        });
+    }
 
     const auto interval = std::chrono::duration<double>(1.0 / cfg_.rate_per_sec);
     const auto start_time = std::chrono::steady_clock::now();
@@ -65,38 +92,28 @@ RunResult LoadGenerator::run() {
         std::this_thread::sleep_until(next_tick);
         next_tick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval);
 
+        bool queued = false;
         {
-            std::lock_guard<std::mutex> lk(in_flight_mtx);
-            if (in_flight >= cfg_.concurrency) {
+            std::lock_guard<std::mutex> lk(work_mtx);
+            if (outstanding >= cfg_.concurrency) {
                 ++out.skipped;
-                continue;
+            } else {
+                ++outstanding;
+                ++pending;
+                queued = true;
             }
-            ++in_flight;
         }
-
-        threads.emplace_back([&, url = cfg_.url, timeout = cfg_.timeout_ms] {
-            RequestResult r = do_request(url, timeout);
-
-            {
-                std::lock_guard<std::mutex> lk(results_mtx);
-                out.requests.push_back(std::move(r));
-            }
-            {
-                std::lock_guard<std::mutex> lk(in_flight_mtx);
-                --in_flight;
-            }
-        });
+        if (queued) work_cv.notify_one();
     }
 
-    for (auto& t : threads) t.join();
+    {
+        std::lock_guard<std::mutex> lk(work_mtx);
+        stopping = true;
+    }
+    work_cv.notify_all();
+    for (auto& worker : workers) worker.join();
 
     curl_global_cleanup();
-
-    if (out.skipped > 0) {
-        std::cerr << "[warn] skipped " << out.skipped
-                  << " scheduled requests (concurrency limit reached; "
-                  << "actual rate lower than requested)\n";
-    }
 
     return out;
 }

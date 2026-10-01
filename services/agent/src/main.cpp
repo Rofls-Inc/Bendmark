@@ -40,19 +40,29 @@ int main(int argc, char** argv) {
     }
 
     std::string output_file;
-    for (int i = 4; i < argc; ++i) {
-        std::string a = argv[i];
-        if (a == "--concurrency" && i + 1 < argc) {
-            cfg.concurrency = std::stoi(argv[++i]);
-        } else if (a == "--timeout" && i + 1 < argc) {
-            cfg.timeout_ms = std::stol(argv[++i]);
-        } else if (a == "--output" && i + 1 < argc) {
-            output_file = argv[++i];
-        } else {
-            std::cerr << "Unknown option: " << a << "\n";
-            print_usage(argv[0]);
-            return 1;
+    try {
+        for (int i = 4; i < argc; ++i) {
+            std::string a = argv[i];
+            if (a == "--concurrency" && i + 1 < argc) {
+                cfg.concurrency = std::stoi(argv[++i]);
+            } else if (a == "--timeout" && i + 1 < argc) {
+                cfg.timeout_ms = std::stol(argv[++i]);
+            } else if (a == "--output" && i + 1 < argc) {
+                output_file = argv[++i];
+            } else {
+                std::cerr << "Unknown option: " << a << "\n";
+                print_usage(argv[0]);
+                return 1;
+            }
         }
+    } catch (const std::exception& e) {
+        std::cerr << "Invalid option value: " << e.what() << "\n";
+        return 1;
+    }
+
+    if (cfg.concurrency <= 0 || cfg.timeout_ms <= 0) {
+        std::cerr << "concurrency and timeout must be > 0\n";
+        return 1;
     }
 
     LoadGenerator gen(cfg);
