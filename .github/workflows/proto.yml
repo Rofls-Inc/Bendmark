@@ -1,0 +1,44 @@
+name: proto
+
+on:
+  pull_request:
+    paths:
+      - "proto/**"
+      - ".github/workflows/proto.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "proto/**"
+      - ".github/workflows/proto.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Protocol Buffers compiler
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Compile contracts and generate message types
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t sources < <(find proto -name '*.proto' -type f | sort)
+          test "${#sources[@]}" -gt 0
+          mkdir -p build/proto/cpp build/proto/csharp build/proto/python
+          protoc --proto_path=proto \
+            --include_imports \
+            --descriptor_set_out=build/proto/bendmark.pb \
+            --cpp_out=build/proto/cpp \
+            --csharp_out=build/proto/csharp \
+            --python_out=build/proto/python \
+            "${sources[@]}"

@@ -1,0 +1,58 @@
+syntax = "proto3";
+
+package bendmark.v1;
+
+option csharp_namespace = "Bendmark.Contracts.V1";
+
+// A scenario is created by the coordinator and executed by one agent in v1.
+message Scenario {
+  string name = 1;
+  Target target = 2;
+  // Non-empty; target_rps must strictly increase in this order.
+  repeated Step steps = 3;
+}
+
+message Target {
+  // Absolute HTTP(S) URL reachable from the agent, not from the user's browser.
+  string url = 1;
+  // Uppercase HTTP method. An agent must reject unsupported methods.
+  string method = 2;
+}
+
+message Step {
+  // Planned requests per second; finite and greater than zero.
+  double target_rps = 1;
+  // Planned scheduling window in seconds; finite and greater than zero.
+  // Fractional seconds are supported, as in the coordinator's scenario model.
+  double duration_seconds = 2;
+}
+
+// A completed step, produced by the agent. Field names match result.json.
+message StepResult {
+  // One-based position in Scenario.steps, including when a run is stopped.
+  uint32 index = 1;
+  double target_rps = 2;
+  double duration_seconds = 3;
+  // All completed attempts: successful responses, HTTP errors and transport errors.
+  // Requests never sent are not completed attempts.
+  uint64 request_count = 4;
+  // request_count / duration_seconds, including unsuccessful attempts.
+  double throughput_rps = 5;
+  LatencyPercentiles latency_ms = 6;
+  RequestErrors errors = 7;
+}
+
+message LatencyPercentiles {
+  // Milliseconds from the scheduled send time to completion or timeout.
+  // Include failed attempts; compute all percentiles over the same population.
+  double p50 = 1;
+  double p90 = 2;
+  double p99 = 3;
+}
+
+message RequestErrors {
+  // HTTP 4xx/5xx, timeouts and other transport failures; <= request_count.
+  uint64 count = 1;
+  // 100 * count / request_count. Never use planned or skipped requests here.
+  double rate_percent = 2;
+}

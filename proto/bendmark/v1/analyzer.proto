@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package bendmark.v1;
+
+import "bendmark/v1/common.proto";
+
+option csharp_namespace = "Bendmark.Contracts.V1";
+
+service AnalyzerService {
+  rpc FindLimit(FindLimitRequest) returns (FindLimitResponse);
+}
+
+message FindLimitRequest {
+  // A non-empty, ordered prefix of completed steps, including from an aborted run.
+  repeated StepResult steps = 1;
+  // May be absent: use the documented defaults for every omitted threshold.
+  LimitOptions options = 2;
+}
+
+message LimitOptions {
+  // Default: 500 ms. Finite and > 0.
+  optional double p99_threshold_ms = 1;
+  // Default: 0.5. Finite and > 0; throughput increase / target_rps increase.
+  optional double min_gain = 2;
+  // Default: 1 percent. Finite, 0..100; an explicit zero is not the default.
+  optional double max_error_percent = 3;
+}
+
+message FindLimitResponse {
+  Limit limit = 1;
+}
+
+message Limit {
+  // True if at least one supplied step meets a failure criterion.
+  bool found = 1;
+  // Last successful step's target_rps. Absent if the first step failed.
+  // If found=false, this is a lower bound, not a measured maximum.
+  optional double limit_rps = 2;
+  // Index of the first failed step. Absent when found=false.
+  optional uint32 failed_step_index = 3;
+  // Human-readable explanations, matching analyzer.find_limit.
+  // Non-empty when found=true; clients must not parse these strings as codes.
+  repeated string reasons = 4;
+}
