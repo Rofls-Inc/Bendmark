@@ -1,0 +1,17 @@
+{
+  "name": "wrong-type",
+  "target": {
+    "url": "http://abstock:8080/",
+    "method": "GET"
+  },
+  "steps": [
+    {
+      "target_rps": 100,
+      "duration_seconds": 45
+    },
+    {
+      "target_rps": "fast",
+      "duration_seconds": 45
+    }
+  ]
+}

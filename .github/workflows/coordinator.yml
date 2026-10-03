@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - "services/coordinator/**"
+      - "testdata/**"
       - ".github/workflows/coordinator.yml"
   push:
     branches: [main, dev]
     paths:
       - "services/coordinator/**"
+      - "testdata/**"
       - ".github/workflows/coordinator.yml"
   workflow_dispatch:
 

@@ -34,3 +34,6 @@ app.MapGet("/runs/{id:guid}", (Guid id, RunStore store) =>
 
 app.Run();
 
+// Entry point accessible to WebApplicationFactory in integration tests.
+public partial class Program { }
+

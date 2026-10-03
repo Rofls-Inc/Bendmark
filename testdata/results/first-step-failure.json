@@ -1,0 +1,38 @@
+{
+  "scenario_name": "first-step-failure",
+  "status": "completed",
+  "steps": [
+    {
+      "index": 1,
+      "target_rps": 100,
+      "duration_seconds": 10,
+      "request_count": 300,
+      "throughput_rps": 30,
+      "latency_ms": {
+        "p50": 10,
+        "p90": 18,
+        "p99": 20
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      }
+    },
+    {
+      "index": 2,
+      "target_rps": 200,
+      "duration_seconds": 10,
+      "request_count": 400,
+      "throughput_rps": 40,
+      "latency_ms": {
+        "p50": 10,
+        "p90": 18,
+        "p99": 30
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      }
+    }
+  ]
+}
