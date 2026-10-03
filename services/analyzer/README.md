@@ -14,7 +14,7 @@
 
 Предел - целевая нагрузка последней ступени перед первым отказом. Если отказа не было, то предел не найден и известна только нижняя оценка - нагрузка последней ступени.
 
-Входные данные - `result.json` (пример - `examples/result.json`).
+Входные данные - `result.json` (пример - `testdata/results/limit-found.json`).
 Если в нём нет нужного поля или вместо числа стоит строка, `null` и т.п., анализатор завершается с кодом 1 и сообщением, в какой ступени и каком поле ошибка.
 
 
@@ -23,8 +23,8 @@
 Нужен Python 3.10+. Команды выполняются из `services/analyzer`.
 
 ```bash
-python -m analyzer ../../examples/result.json
-python -m analyzer ../../examples/result.json --p99-ms 300 --min-gain 0.5
+python -m analyzer ../../testdata/results/limit-found.json
+python -m analyzer ../../testdata/results/limit-found.json --p99-ms 300 --min-gain 0.5
 ```
 
 ## Тесты
@@ -35,3 +35,8 @@ python -m venv .venv
 pip install -r requirements-dev.txt
 pytest
 ```
+
+Тесты читают общие результаты из [`testdata/results/`](../../testdata/results/).
+Описание случаев и ожидаемых пределов — в
+[`testdata/README.md`](../../testdata/README.md). Для проверки ошибок отдельных
+полей тесты изменяют загруженную ступень в памяти.

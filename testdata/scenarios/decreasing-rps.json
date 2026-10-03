@@ -1,0 +1,17 @@
+{
+  "name": "decreasing-rps",
+  "target": {
+    "url": "http://abstock:8080/",
+    "method": "GET"
+  },
+  "steps": [
+    {
+      "target_rps": 200,
+      "duration_seconds": 10
+    },
+    {
+      "target_rps": 100,
+      "duration_seconds": 10
+    }
+  ]
+}
