@@ -12,8 +12,12 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 builder.Services.AddSingleton<RunStore>();
+builder.Services.AddHealthChecks();
 
 var app = builder.Build();
+
+// Проверка живости для healthcheck в docker-compose.yml
+app.MapHealthChecks("/health");
 
 app.MapPost("/runs", async (HttpRequest request, RunStore store) =>
 {

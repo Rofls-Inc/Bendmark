@@ -1,0 +1,58 @@
+name: compose
+
+on:
+  pull_request:
+    paths:
+      - "services/agent/**"
+      - "services/analyzer/**"
+      - "services/coordinator/**"
+      - "docker-compose.yml"
+      - ".github/workflows/compose.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "services/agent/**"
+      - "services/analyzer/**"
+      - "services/coordinator/**"
+      - "docker-compose.yml"
+      - ".github/workflows/compose.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build images
+        run: docker compose --profile tools build
+
+      - name: Start stack
+        # --wait ждёт, пока healthcheck'и abstock и coordinator станут healthy
+        run: docker compose up -d --wait --wait-timeout 180
+
+      - name: Coordinator creates a run
+        run: |
+          code=$(curl -s -o response.json -w '%{http_code}' -X POST http://localhost:5080/runs \
+            -H "Content-Type: application/yaml" --data-binary "@examples/scenario.yaml")
+          cat response.json; echo
+          test "$code" = 201
+
+      - name: Agent reaches abstock
+        run: docker compose run --rm agent http://abstock:8080/ 10 2 --output /dev/null
+
+      - name: Analyzer reads a result
+        run: docker compose run --rm analyzer examples/result.json
+
+      - name: Logs
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop stack
+        if: always()
+        run: docker compose --profile tools down -v

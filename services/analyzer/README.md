@@ -27,6 +27,12 @@ python -m analyzer ../../examples/result.json
 python -m analyzer ../../examples/result.json --p99-ms 300 --min-gain 0.5
 ```
 
+Через Docker из корня репозитория (путь к файлу относительно корня):
+
+```bash
+docker compose run --rm analyzer examples/result.json --p99-ms 300
+```
+
 ## Тесты
 
 ```bash

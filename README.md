@@ -299,6 +299,33 @@ k6, Gatling и Locust умеют подавать нагрузку и рисов
 
 Сервисы общаются через gRPC. Запускаем всё через Docker Compose.
 
+Общие сущности (сценарий, ступень, прогон, предел) и словарь терминов описаны в [docs/domain.md](docs/domain.md).
+
+---
+
+## Запуск
+
+Нужен Docker с Compose v2. Из корня репозитория:
+
+```bash
+docker compose up --build
+```
+
+Первая сборка занимает несколько минут: ABStock собирается из [своего репозитория](https://github.com/yarosvla/ABStock).
+Когда оба сервиса станут `healthy`, координатор отвечает на http://localhost:5080, а ABStock на http://localhost:5062.
+Проверить можно запросами из [README координатора](services/coordinator/README.md#проверка-через-curl).
+
+Агент и анализатор пока консольные программы, поэтому `up` их не запускает. Их запускают так:
+
+```bash
+# 50 запр/с в течение 10 с по ABStock внутри общей сети
+docker compose run --rm agent http://abstock:8080/ 50 10
+# путь к файлу относительно корня репозитория
+docker compose run --rm analyzer examples/result.json
+```
+
+Остановить всё: `docker compose down`. База ABStock остаётся в томе `abstock-data`, удалить её можно через `docker compose down -v`.
+
 ---
 
 ## Команда

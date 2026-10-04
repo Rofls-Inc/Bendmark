@@ -14,6 +14,9 @@ dotnet run --urls http://localhost:5080
 
 Или в Visual Studio профиль `http`.
 
+Или вместе с остальными сервисами через Docker из корня репозитория: `docker compose up --build`.
+Порт тот же, 5080. Проверка живости: `GET /health` отвечает `200 Healthy`.
+
 ## API
 
 `POST /runs` - принимает сценарий в JSON (`Content-Type: application/json`)
