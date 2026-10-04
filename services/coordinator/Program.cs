@@ -33,7 +33,3 @@ app.MapGet("/runs/{id:guid}", (Guid id, RunStore store) =>
     store.Get(id) is { } run ? Results.Ok(run) : Results.NotFound());
 
 app.Run();
-
-// Entry point accessible to WebApplicationFactory in integration tests.
-public partial class Program { }
-

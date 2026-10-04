@@ -4,13 +4,13 @@ on:
   pull_request:
     paths:
       - "services/coordinator/**"
-      - "testdata/**"
+      - "testdata/scenarios/**"
       - ".github/workflows/coordinator.yml"
   push:
     branches: [main, dev]
     paths:
       - "services/coordinator/**"
-      - "testdata/**"
+      - "testdata/scenarios/**"
       - ".github/workflows/coordinator.yml"
   workflow_dispatch:
 
@@ -52,12 +52,12 @@ jobs:
 
       - name: Restore
         if: steps.check.outputs.found == 'true'
-        run: dotnet restore
+        run: dotnet restore Bendmark.Coordinator.slnx
 
       - name: Build
         if: steps.check.outputs.found == 'true'
-        run: dotnet build --no-restore --configuration Release
+        run: dotnet build Bendmark.Coordinator.slnx --no-restore --configuration Release
 
       - name: Test
         if: steps.check.outputs.found == 'true'
-        run: dotnet test --no-build --configuration Release
+        run: dotnet test Bendmark.Coordinator.slnx --no-build --configuration Release
