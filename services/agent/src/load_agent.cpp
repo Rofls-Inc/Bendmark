@@ -148,9 +148,8 @@ StepStats compute_step_stats(const LoadConfig& cfg, const RunResult& run) {
     latencies.reserve(run.requests.size());
 
     for (const auto& r : run.requests) {
-        if (r.success) {
-            latencies.push_back(r.latency_us);
-        } else {
+        latencies.push_back(r.latency_us);
+        if (!r.success) {
             ++s.error_count;
         }
     }
