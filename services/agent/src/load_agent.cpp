@@ -39,7 +39,15 @@ RequestResult do_request(const std::string& url, long timeout_ms) {
     r.latency_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
 
     if (rc == CURLE_OK) {
-        r.success = true;
+        long code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+        r.http_code = code;
+
+        if (code >= 200 && code < 400) {
+            r.success = true;
+        } else {
+            r.error = "HTTP " + std::to_string(code);
+        }
     } else {
         r.error = curl_easy_strerror(rc);
     }
