@@ -12,6 +12,9 @@ service AnalyzerService {
 
 message FindLimitRequest {
   // A non-empty, ordered prefix of completed steps, including from an aborted run.
+  // target_rps must strictly increase here; Scenario itself has no such requirement.
+  // Reject zero request_count or positive skipped_count with FAILED_PRECONDITION:
+  // these measurements cannot establish a service limit.
   repeated StepResult steps = 1;
   // May be absent: use the documented defaults for every omitted threshold.
   LimitOptions options = 2;
@@ -36,7 +39,8 @@ message Limit {
   // Last successful step's target_rps. Absent if the first step failed.
   // If found=false, this is a lower bound, not a measured maximum.
   optional double limit_rps = 2;
-  // Index of the first failed step. Absent when found=false.
+  // One-based StepResult.index of the first failed step, not an array offset.
+  // Absent when found=false.
   optional uint32 failed_step_index = 3;
   // Human-readable explanations, matching analyzer.find_limit.
   // Non-empty when found=true; clients must not parse these strings as codes.

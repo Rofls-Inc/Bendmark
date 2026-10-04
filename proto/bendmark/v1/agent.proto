@@ -9,10 +9,13 @@ option csharp_namespace = "Bendmark.Contracts.V1";
 service AgentService {
   // Execute the scenario once. Emit one response for each completed step.
   // Finish with OK only after every step has been reported.
+  // An interrupted step is omitted; prior completed steps remain valid.
+  // Reject a second concurrent Run with RESOURCE_EXHAUSTED; do not queue it.
   // Stop or client cancellation must stop the load; see proto/README.md for statuses.
   rpc Run(RunRequest) returns (stream RunResponse);
 
   // Stop the identified run and wait until its load has stopped.
+  // The stopped Run stream finishes with CANCELLED; Stop itself returns OK.
   rpc Stop(StopRequest) returns (StopResponse);
 }
 
@@ -25,7 +28,7 @@ message RunRequest {
 message RunResponse {
   // Correlation ID from RunRequest.
   string run_id = 1;
-  // Exactly one completed step; index is its position in the submitted scenario.
+  // Exactly one fully completed step; index is its position in the submitted scenario.
   StepResult step_result = 2;
 }
 

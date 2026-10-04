@@ -1,0 +1,14 @@
+version: v2
+plugins:
+  - remote: buf.build/protocolbuffers/cpp:v29.3
+    out: build/proto/cpp
+  - remote: buf.build/grpc/cpp:v1.70.0
+    out: build/proto/cpp
+  - remote: buf.build/protocolbuffers/csharp:v29.3
+    out: build/proto/csharp
+  - remote: buf.build/grpc/csharp:v1.70.0
+    out: build/proto/csharp
+  - remote: buf.build/protocolbuffers/python:v29.3
+    out: build/proto/python
+  - remote: buf.build/grpc/python:v1.70.0
+    out: build/proto/python

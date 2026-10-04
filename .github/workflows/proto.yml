@@ -4,11 +4,17 @@ on:
   pull_request:
     paths:
       - "proto/**"
+      - "buf.yaml"
+      - "buf.gen.yaml"
+      - "services/analyzer/analyzer/result.py"
       - ".github/workflows/proto.yml"
   push:
     branches: [main, dev]
     paths:
       - "proto/**"
+      - "buf.yaml"
+      - "buf.gen.yaml"
+      - "services/analyzer/analyzer/result.py"
       - ".github/workflows/proto.yml"
   workflow_dispatch:
 
@@ -24,21 +30,43 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Install Protocol Buffers compiler
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - name: Set up Buf
+        uses: bufbuild/buf-action@v1
+        with:
+          version: "1.73.0"
+          setup_only: true
 
-      - name: Compile contracts and generate message types
+      - name: Build, lint and check formatting
+        run: |
+          buf build
+          buf lint
+          buf format --diff --exit-code
+
+      - name: Check backward compatibility
         shell: bash
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          mapfile -t sources < <(find proto -name '*.proto' -type f | sort)
-          test "${#sources[@]}" -gt 0
-          mkdir -p build/proto/cpp build/proto/csharp build/proto/python
-          protoc --proto_path=proto \
-            --include_imports \
-            --descriptor_set_out=build/proto/bendmark.pb \
-            --cpp_out=build/proto/cpp \
-            --csharp_out=build/proto/csharp \
-            --python_out=build/proto/python \
-            "${sources[@]}"
+          if [[ -n "$BASE_SHA" ]] && git cat-file -e "$BASE_SHA:proto/bendmark/v1/common.proto" 2>/dev/null; then
+            buf breaking --against ".git#ref=$BASE_SHA,subdir=proto"
+          else
+            echo "::notice::No previous contracts at the comparison commit; establishing the initial schema."
+          fi
+
+      - name: Generate messages and gRPC clients/servers
+        run: buf generate
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test generated gRPC contracts
+        env:
+          PYTHONPATH: build/proto/python
+        run: |
+          python -m pip install -r proto/requirements-test.txt
+          python -m unittest discover -s proto/tests -v

@@ -8,14 +8,15 @@ option csharp_namespace = "Bendmark.Contracts.V1";
 message Scenario {
   string name = 1;
   Target target = 2;
-  // Non-empty; target_rps must strictly increase in this order.
+  // Non-empty, executed in this order. Constant or decreasing loads are allowed.
+  // Only FindLimit requires strictly increasing target_rps.
   repeated Step steps = 3;
 }
 
 message Target {
   // Absolute HTTP(S) URL reachable from the agent, not from the user's browser.
   string url = 1;
-  // Uppercase HTTP method. An agent must reject unsupported methods.
+  // Only uppercase GET is supported in v1. Reject other values at both inputs.
   string method = 2;
 }
 
@@ -27,11 +28,14 @@ message Step {
   double duration_seconds = 2;
 }
 
-// A completed step, produced by the agent. Field names match result.json.
+// A fully completed step, produced by the agent. Interrupted steps are omitted.
+// result.json is mapped explicitly by the coordinator; it is not ProtoJSON.
 message StepResult {
   // One-based position in Scenario.steps, including when a run is stopped.
   uint32 index = 1;
   double target_rps = 2;
+  // Planned scheduling window, not the wall time including draining requests.
+  // Equal to Scenario.steps[index - 1].duration_seconds; never used for partial steps.
   double duration_seconds = 3;
   // All completed attempts: successful responses, HTTP errors and transport errors.
   // Requests never sent are not completed attempts.
@@ -40,11 +44,16 @@ message StepResult {
   double throughput_rps = 5;
   LatencyPercentiles latency_ms = 6;
   RequestErrors errors = 7;
+  // Scheduled ticks never sent because the worker pool was full.
+  // Excluded from request_count, percentiles and errors. Not a service failure.
+  // FindLimit rejects measurements with skipped_count > 0 in v1.
+  uint64 skipped_count = 8;
 }
 
 message LatencyPercentiles {
   // Milliseconds from the scheduled send time to completion or timeout.
   // Include failed attempts; compute all percentiles over the same population.
+  // All three are zero when request_count is zero: this means no measurements.
   double p50 = 1;
   double p90 = 2;
   double p99 = 3;
@@ -53,6 +62,7 @@ message LatencyPercentiles {
 message RequestErrors {
   // HTTP 4xx/5xx, timeouts and other transport failures; <= request_count.
   uint64 count = 1;
-  // 100 * count / request_count. Never use planned or skipped requests here.
+  // 100 * count / request_count, or zero when request_count is zero.
+  // Never use planned or skipped requests here.
   double rate_percent = 2;
 }
