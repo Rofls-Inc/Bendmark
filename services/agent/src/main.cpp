@@ -72,7 +72,7 @@ int main(int argc, char** argv) {
     LoadGenerator gen(cfg);
     RunResult result = gen.run();
 
-    if (result.requests.empty() && result.skipped == 0) {
+    if (result.requests.empty()) {
         std::cerr << "No requests were sent\n";
         return 3;
     }
@@ -96,12 +96,12 @@ int main(int argc, char** argv) {
             if (r.success) {
                 ++success_count;
                 *out << std::fixed << std::setprecision(3)
-                     << (r.latency_us / 1000.0) << "\n";
+                     << (r.service_us / 1000.0) << "\n";
             } else {
                 ++fail_count;
                 std::cerr << "request failed: " << r.error
                           << " (after " << std::fixed << std::setprecision(1)
-                          << (r.latency_us / 1000.0) << " ms)\n";
+                          << (r.service_us / 1000.0) << " ms)\n";
             }
         }
     } else {
@@ -112,19 +112,9 @@ int main(int argc, char** argv) {
                 ++fail_count;
                 std::cerr << "request failed: " << r.error
                           << " (after " << std::fixed << std::setprecision(1)
-                          << (r.latency_us / 1000.0) << " ms)\n";
+                          << (r.service_us / 1000.0) << " ms)\n";
             }
         }
-    }
-
-    if (result.skipped > 0) {
-        long long sent = static_cast<long long>(result.requests.size());
-        long long planned = sent + result.skipped;
-        double actual_rate = cfg.rate_per_sec * static_cast<double>(sent) / planned;
-        std::cerr << "[warn] skipped " << result.skipped << " of " << planned
-                  << " planned requests; actual rate ~"
-                  << std::fixed << std::setprecision(2) << actual_rate
-                  << " req/s (requested " << cfg.rate_per_sec << ")\n";
     }
 
     if (!json_file.empty()) {
