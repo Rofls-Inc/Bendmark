@@ -30,6 +30,10 @@ def find_limit(steps: list[Step], p99_threshold_ms: float, min_gain: float = 0.5
     last_ok: Step | None = None
 
     for step in steps:
+        if step.request_count == 0:
+            raise ValueError(
+                f"ступень {step.index}: нет завершившихся запросов, предел сервиса определить нельзя"
+            )
         if step.target_rps <= prev_target:
             raise ValueError(
                 f"целевая нагрузка должна расти от ступени к ступени, а на ступени {step.index} она {step.target_rps:g} после {prev_target:g}"
