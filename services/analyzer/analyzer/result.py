@@ -31,6 +31,13 @@ def _parse_step(raw: object, position: int) -> Step:
     where = f"ступень {position}"
     if not isinstance(raw, dict):
         raise ValueError(f"{where}: ожидался объект")
+    # Legacy result files omit this field; new agents must export it explicitly.
+    if "skipped_count" in raw:
+        skipped = _number(raw, where, "skipped_count", integer=True)
+        if skipped > 0:
+            raise ValueError(
+                f"{where}: агент пропустил {skipped} запросов; эти измерения не определяют предел сервиса"
+            )
     step = Step(
         index=_number(raw, where, "index", integer=True),
         target_rps=_number(raw, where, "target_rps"),

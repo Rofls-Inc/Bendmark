@@ -2,9 +2,6 @@ namespace Bendmark.Coordinator;
 
 public static class ScenarioValidator
 {
-    private static readonly HashSet<string> AllowedMethods =
-        new(StringComparer.OrdinalIgnoreCase) { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD" };
-
     public static Dictionary<string, string[]> Validate(Scenario? scenario)
     {
         var errors = new Dictionary<string, string[]>();
@@ -30,8 +27,8 @@ public static class ScenarioValidator
                 || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
                 Add("target.url", "Нужен абсолютный URL с http или https");
 
-            if (string.IsNullOrWhiteSpace(target.Method) || !AllowedMethods.Contains(target.Method))
-                Add("target.method", "Допустимы GET, POST, PUT, PATCH, DELETE, HEAD");
+            if (target.Method != "GET")
+                Add("target.method", "В v1 поддерживается только GET в верхнем регистре");
         }
 
         if (scenario.Steps is null || scenario.Steps.Count == 0)
