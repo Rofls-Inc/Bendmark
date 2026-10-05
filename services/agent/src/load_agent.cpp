@@ -167,9 +167,9 @@ StepStats compute_step_stats(const LoadConfig& cfg, const RunResult& run) {
     double secs = static_cast<double>(s.duration_seconds);
     s.throughput_rps = secs > 0 ? static_cast<double>(s.request_count) / secs : 0.0;
 
-    long long total = static_cast<long long>(run.requests.size()) + run.skipped;
-    if (total > 0) {
-        s.error_rate_percent = 100.0 * static_cast<double>(s.error_count) / static_cast<double>(total);
+    if (s.request_count > 0) {
+        s.error_rate_percent =
+            100.0 * static_cast<double>(s.error_count) / static_cast<double>(s.request_count);
     }
 
     if (!latencies.empty()) {
