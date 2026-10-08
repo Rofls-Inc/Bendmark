@@ -8,6 +8,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower;
     options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict;
+    options.SerializerOptions.UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow;
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower));
 });
 

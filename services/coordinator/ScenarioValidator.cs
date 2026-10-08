@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Bendmark.Coordinator;
 
 public static class ScenarioValidator
@@ -50,9 +52,26 @@ public static class ScenarioValidator
                 if (!IsPositive(step.DurationSeconds))
                     Add($"steps[{i}].duration_seconds", "Должно быть конечным числом больше нуля");
             }
+
+            // Анализатору нужна рампа: target_rps строго растёт от ступени к ступени.
+            // Сравниваем только соседей, у которых нагрузка уже прошла проверку выше
+            for (var i = 1; i < scenario.Steps.Count; i++)
+            {
+                var previous = scenario.Steps[i - 1];
+                var current = scenario.Steps[i];
+                if (previous is null || current is null
+                    || !IsPositive(previous.TargetRps) || !IsPositive(current.TargetRps))
+                    continue;
+                if (current.TargetRps <= previous.TargetRps)
+                    Add($"steps[{i}].target_rps",
+                        $"Нагрузка должна расти: {Format(current.TargetRps)} после {Format(previous.TargetRps)}");
+            }
         }
 
         return errors;
     }
+
     private static bool IsPositive(double value) => double.IsFinite(value) && value > 0;
+
+    private static string Format(double value) => value.ToString(CultureInfo.InvariantCulture);
 }
