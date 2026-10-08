@@ -73,7 +73,12 @@ int main(int argc, char** argv) {
     RunResult result = gen.run();
 
     if (result.requests.empty()) {
-        std::cerr << "No requests were sent\n";
+        if (result.skipped > 0) {
+            std::cerr << "All " << result.skipped << " planned requests were skipped: "
+                      << "no free worker at any tick\n";
+        } else {
+            std::cerr << "No requests were sent\n";
+        }
         return 3;
     }
 
@@ -96,12 +101,12 @@ int main(int argc, char** argv) {
             if (r.success) {
                 ++success_count;
                 *out << std::fixed << std::setprecision(3)
-                     << (r.service_us / 1000.0) << "\n";
+                     << (r.latency_us / 1000.0) << "\n";
             } else {
                 ++fail_count;
                 std::cerr << "request failed: " << r.error
                           << " (after " << std::fixed << std::setprecision(1)
-                          << (r.service_us / 1000.0) << " ms)\n";
+                          << (r.latency_us / 1000.0) << " ms)\n";
             }
         }
     } else {
@@ -112,9 +117,19 @@ int main(int argc, char** argv) {
                 ++fail_count;
                 std::cerr << "request failed: " << r.error
                           << " (after " << std::fixed << std::setprecision(1)
-                          << (r.service_us / 1000.0) << " ms)\n";
+                          << (r.latency_us / 1000.0) << " ms)\n";
             }
         }
+    }
+
+    if (result.skipped > 0) {
+        long long sent = static_cast<long long>(result.requests.size());
+        long long planned = sent + result.skipped;
+        std::cerr << "[warn] skipped " << result.skipped << " of " << planned
+                  << " planned requests: all " << cfg.concurrency << " workers were busy.\n"
+                  << "[warn] The step is not a valid measurement of the service "
+                  << "(the analyzer rejects skipped_count > 0). "
+                  << "Increase --concurrency to at least rate x latency.\n";
     }
 
     if (!json_file.empty()) {

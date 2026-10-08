@@ -1,7 +1,6 @@
 #pragma once
 
 #include <chrono>
-#include <deque>
 #include <string>
 #include <vector>
 
@@ -15,14 +14,17 @@ struct LoadConfig {
 
 struct RequestResult {
     bool success = false;
-    long queue_us = 0;
-    long service_us = 0;
+    // От запланированного момента отправки до ответа или таймаута
+    long latency_us = 0;
+    // От запланированного момента до фактического старта запроса.
+    long send_lag_us = 0;
     long http_code = 0;
     std::string error;
 };
 
 struct RunResult {
     std::vector<RequestResult> requests;
+    long long skipped = 0;
 };
 
 class LoadGenerator {
@@ -45,6 +47,7 @@ struct StepStats {
     double latency_p99_ms = 0.0;
     long long error_count = 0;
     double error_rate_percent = 0.0;
+    long long skipped_count = 0;
 };
 
 StepStats compute_step_stats(const LoadConfig& cfg, const RunResult& run);
