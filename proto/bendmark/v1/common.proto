@@ -8,8 +8,9 @@ option csharp_namespace = "Bendmark.Contracts.V1";
 message Scenario {
   string name = 1;
   Target target = 2;
-  // Non-empty, executed in this order. Constant or decreasing loads are allowed.
-  // Only FindLimit requires strictly increasing target_rps.
+  // Non-empty, executed in this order. The coordinator accepts only strictly
+  // increasing target_rps, because FindLimit needs a ramp; the agent executes
+  // the steps as given and does not check their order.
   repeated Step steps = 3;
 }
 
