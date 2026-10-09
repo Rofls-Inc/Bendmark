@@ -17,8 +17,9 @@ struct StepConfig {
 struct ScenarioConfig {
     std::string url;
     std::vector<StepConfig> steps;
-    int concurrency = 16;
     long timeout_ms = 5000;
+    int max_concurrency = 1000;
+    int concurrency_override = 0;
 };
 
 struct StepResult {
@@ -42,6 +43,8 @@ struct ScenarioResult {
 };
 
 using StepCallback = std::function<void(const StepResult&)>;
+
+int compute_workers(const StepConfig& step, const ScenarioConfig& opt);
 
 std::optional<StepResult> run_step(const std::string& url,
                                    const StepConfig& step,

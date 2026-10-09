@@ -17,11 +17,12 @@ void print_usage(const char* prog) {
         << "  " << prog << " <URL> <rate_per_sec> <duration_sec> [options]\n"
         << "  " << prog << " <URL> --steps RATE:DURATION[,RATE:DURATION...] [options]\n"
         << "Options:\n"
-        << "  --steps LIST      scenario steps, e.g. 100:45,200:45.5\n"
-        << "  --name NAME       scenario name (default cli)\n"
-        << "  --concurrency N   number of workers (default 16)\n"
-        << "  --timeout MS      per-request timeout in ms (default 5000)\n"
-        << "  --json FILE       write result.json (default stdout)\n";
+        << "  --steps LIST           scenario steps, e.g. 100:45,200:45.5\n"
+        << "  --name NAME            scenario name (default cli)\n"
+        << "  --timeout MS           per-request timeout in ms (default 5000)\n"
+        << "  --max-concurrency N    cap for auto-computed worker count (default 1000)\n"
+        << "  --concurrency N        override worker count (default: auto)\n"
+        << "  --json FILE            write result.json (default stdout)\n";
 }
 
 std::vector<StepConfig> parse_steps(const std::string& s) {
@@ -66,8 +67,9 @@ int main(int argc, char** argv) {
     std::string url = argv[1];
     std::string steps_arg;
     std::string name = "cli";
-    int concurrency = 16;
     long timeout_ms = 5000;
+    int max_concurrency = 1000;
+    int concurrency_override = 0;
     std::string json_file;
 
     bool positional_done = false;
@@ -91,10 +93,12 @@ int main(int argc, char** argv) {
                 steps_arg = argv[++i];
             } else if (a == "--name" && i + 1 < argc) {
                 name = argv[++i];
-            } else if (a == "--concurrency" && i + 1 < argc) {
-                concurrency = std::stoi(argv[++i]);
             } else if (a == "--timeout" && i + 1 < argc) {
                 timeout_ms = std::stol(argv[++i]);
+            } else if (a == "--max-concurrency" && i + 1 < argc) {
+                max_concurrency = std::stoi(argv[++i]);
+            } else if (a == "--concurrency" && i + 1 < argc) {
+                concurrency_override = std::stoi(argv[++i]);
             } else if (a == "--json" && i + 1 < argc) {
                 json_file = argv[++i];
             } else {
@@ -110,8 +114,9 @@ int main(int argc, char** argv) {
 
     ScenarioConfig sc;
     sc.url = url;
-    sc.concurrency = concurrency;
     sc.timeout_ms = timeout_ms;
+    sc.max_concurrency = max_concurrency;
+    sc.concurrency_override = concurrency_override;
 
     try {
         if (!steps_arg.empty()) {
@@ -131,8 +136,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    if (sc.concurrency <= 0 || sc.timeout_ms <= 0) {
-        std::cerr << "concurrency and timeout must be > 0\n";
+    if (sc.timeout_ms <= 0 || sc.max_concurrency <= 0) {
+        std::cerr << "timeout and max-concurrency must be > 0\n";
+        return 1;
+    }
+    if (sc.concurrency_override < 0) {
+        std::cerr << "concurrency override must be >= 0\n";
         return 1;
     }
 
@@ -171,7 +180,7 @@ int main(int argc, char** argv) {
         std::cerr << "[warn] " << total_skipped
                   << " planned requests were skipped across steps: not enough workers.\n"
                   << "[warn] The analyzer rejects steps with skipped_count > 0. "
-                  << "Increase --concurrency.\n";
+                  << "Increase --max-concurrency or --timeout.\n";
     }
 
     return 0;

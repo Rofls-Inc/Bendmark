@@ -2,10 +2,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdio>
 #include <deque>
 #include <fstream>
+#include <iostream>
 #include <mutex>
 #include <thread>
 #include <utility>
@@ -59,7 +61,7 @@ RunResult run_one_step(const std::string& url,
     int outstanding = 0;
     bool stopping = false;
 
-    const int concurrency = opt.concurrency;
+    const int concurrency = compute_workers(step, opt);
 
     for (int i = 0; i < concurrency; ++i) {
         workers.emplace_back([&, url, timeout = opt.timeout_ms, sender] {
@@ -165,6 +167,22 @@ StepResult compute_step_result(int index, const StepConfig& step, const RunResul
 
 } // namespace
 
+int compute_workers(const StepConfig& step, const ScenarioConfig& opt) {
+    if (opt.concurrency_override > 0) {
+        return opt.concurrency_override;
+    }
+
+    double timeout_sec = static_cast<double>(opt.timeout_ms) / 1000.0;
+    double need = std::ceil(step.target_rps * timeout_sec) + 1.0;
+
+    if (need < 1.0) need = 1.0;
+    if (need > static_cast<double>(opt.max_concurrency)) {
+        need = static_cast<double>(opt.max_concurrency);
+    }
+
+    return static_cast<int>(need);
+}
+
 std::optional<StepResult> run_step(const std::string& url,
                                    const StepConfig& step,
                                    int index,
@@ -202,40 +220,48 @@ std::vector<StepResult> run_scenario(const ScenarioConfig& sc,
 }
 
 bool write_result_json(const std::string& path, const ScenarioResult& result) {
-    std::ofstream out(path);
-    if (!out) return false;
+    std::ofstream file;
+    std::ostream* out = nullptr;
 
-    out << "{\n";
-    out << "  \"scenario_name\": \"" << result.scenario_name << "\",\n";
-    out << "  \"status\": \"" << result.status << "\",\n";
-    out << "  \"steps\": [\n";
+    if (path == "-") {
+        out = &std::cout;
+    } else {
+        file.open(path);
+        if (!file) return false;
+        out = &file;
+    }
+
+    *out << "{\n";
+    *out << "  \"scenario_name\": \"" << result.scenario_name << "\",\n";
+    *out << "  \"status\": \"" << result.status << "\",\n";
+    *out << "  \"steps\": [\n";
 
     for (size_t i = 0; i < result.steps.size(); ++i) {
         const auto& s = result.steps[i];
 
-        out << "    {\n";
-        out << "      \"index\": " << s.index << ",\n";
-        out << "      \"target_rps\": ";       write_double(out, s.target_rps);       out << ",\n";
-        out << "      \"duration_seconds\": "; write_double(out, s.duration_seconds); out << ",\n";
-        out << "      \"request_count\": "    << s.request_count << ",\n";
-        out << "      \"throughput_rps\": ";   write_double(out, s.throughput_rps);    out << ",\n";
-        out << "      \"latency_ms\": { "
-            << "\"p50\": "; write_double(out, s.latency_p50_ms, 3);
-        out << ", \"p90\": "; write_double(out, s.latency_p90_ms, 3);
-        out << ", \"p99\": "; write_double(out, s.latency_p99_ms, 3);
-        out << " },\n";
-        out << "      \"errors\": { "
-            << "\"count\": " << s.error_count
-            << ", \"rate_percent\": "; write_double(out, s.error_rate_percent, 1);
-        out << " },\n";
-        out << "      \"skipped_count\": " << s.skipped_count << "\n";
-        out << "    }";
-        if (i + 1 < result.steps.size()) out << ",";
-        out << "\n";
+        *out << "    {\n";
+        *out << "      \"index\": " << s.index << ",\n";
+        *out << "      \"target_rps\": ";       write_double(*out, s.target_rps);       *out << ",\n";
+        *out << "      \"duration_seconds\": "; write_double(*out, s.duration_seconds); *out << ",\n";
+        *out << "      \"request_count\": "    << s.request_count << ",\n";
+        *out << "      \"throughput_rps\": ";   write_double(*out, s.throughput_rps);    *out << ",\n";
+        *out << "      \"latency_ms\": { "
+             << "\"p50\": "; write_double(*out, s.latency_p50_ms, 3);
+        *out << ", \"p90\": "; write_double(*out, s.latency_p90_ms, 3);
+        *out << ", \"p99\": "; write_double(*out, s.latency_p99_ms, 3);
+        *out << " },\n";
+        *out << "      \"errors\": { "
+             << "\"count\": " << s.error_count
+             << ", \"rate_percent\": "; write_double(*out, s.error_rate_percent, 1);
+        *out << " },\n";
+        *out << "      \"skipped_count\": " << s.skipped_count << "\n";
+        *out << "    }";
+        if (i + 1 < result.steps.size()) *out << ",";
+        *out << "\n";
     }
 
-    out << "  ]\n";
-    out << "}\n";
+    *out << "  ]\n";
+    *out << "}\n";
 
-    return static_cast<bool>(out);
+    return static_cast<bool>(*out);
 }
