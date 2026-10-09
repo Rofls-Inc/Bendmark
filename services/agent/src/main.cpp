@@ -72,8 +72,13 @@ int main(int argc, char** argv) {
     LoadGenerator gen(cfg);
     RunResult result = gen.run();
 
-    if (result.requests.empty() && result.skipped == 0) {
-        std::cerr << "No requests were sent\n";
+    if (result.requests.empty()) {
+        if (result.skipped > 0) {
+            std::cerr << "All " << result.skipped << " planned requests were skipped: "
+                      << "no free worker at any tick\n";
+        } else {
+            std::cerr << "No requests were sent\n";
+        }
         return 3;
     }
 
@@ -120,11 +125,11 @@ int main(int argc, char** argv) {
     if (result.skipped > 0) {
         long long sent = static_cast<long long>(result.requests.size());
         long long planned = sent + result.skipped;
-        double actual_rate = cfg.rate_per_sec * static_cast<double>(sent) / planned;
         std::cerr << "[warn] skipped " << result.skipped << " of " << planned
-                  << " planned requests; actual rate ~"
-                  << std::fixed << std::setprecision(2) << actual_rate
-                  << " req/s (requested " << cfg.rate_per_sec << ")\n";
+                  << " planned requests: all " << cfg.concurrency << " workers were busy.\n"
+                  << "[warn] The step is not a valid measurement of the service "
+                  << "(the analyzer rejects skipped_count > 0). "
+                  << "Increase --concurrency to at least rate x latency.\n";
     }
 
     if (!json_file.empty()) {
