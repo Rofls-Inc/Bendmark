@@ -2,53 +2,90 @@
 #include "sender.hpp"
 
 #include <curl/curl.h>
-#include <fstream>
-#include <iomanip>
 #include <iostream>
+#include <sstream>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace {
 
 void print_usage(const char* prog) {
     std::cout
-        << "Usage: " << prog << " <URL> <rate_per_sec> <duration_sec> [options]\n"
+        << "Usage:\n"
+        << "  " << prog << " <URL> <rate_per_sec> <duration_sec> [options]\n"
+        << "  " << prog << " <URL> --steps RATE:DURATION[,RATE:DURATION...] [options]\n"
         << "Options:\n"
-        << "  --concurrency N   max parallel requests (default 16)\n"
+        << "  --steps LIST      scenario steps, e.g. 100:45,200:45.5\n"
+        << "  --name NAME       scenario name (default cli)\n"
+        << "  --concurrency N   number of workers (default 16)\n"
         << "  --timeout MS      per-request timeout in ms (default 5000)\n"
-        << "  --json FILE       write aggregated stats as JSON\n";
+        << "  --json FILE       write result.json (default stdout)\n";
+}
+
+std::vector<StepConfig> parse_steps(const std::string& s) {
+    std::vector<StepConfig> steps;
+    std::stringstream ss(s);
+    std::string pair;
+    while (std::getline(ss, pair, ',')) {
+        if (pair.empty()) continue;
+        auto colon = pair.find(':');
+        if (colon == std::string::npos) {
+            throw std::runtime_error("bad step (expected RATE:DURATION): " + pair);
+        }
+        StepConfig step;
+        step.target_rps = std::stod(pair.substr(0, colon));
+        step.duration_seconds = std::stod(pair.substr(colon + 1));
+        if (step.target_rps <= 0 || step.duration_seconds <= 0) {
+            throw std::runtime_error("step values must be > 0: " + pair);
+        }
+        steps.push_back(step);
+    }
+    if (steps.empty()) {
+        throw std::runtime_error("--steps is empty");
+    }
+    return steps;
 }
 
 } // namespace
 
 int main(int argc, char** argv) {
-    if (argc < 4) {
+    if (argc < 3) {
         print_usage(argv[0]);
         return 1;
     }
 
-    LoadConfig cfg;
-    try {
-        cfg.url = argv[1];
-        cfg.rate_per_sec = std::stod(argv[2]);
-        cfg.duration_seconds = std::stod(argv[3]);
-    } catch (const std::exception& e) {
-        std::cerr << "Invalid arguments: " << e.what() << "\n";
-        return 1;
-    }
-
-    if (cfg.rate_per_sec <= 0 || cfg.duration_seconds <= 0) {
-        std::cerr << "rate and duration must be > 0\n";
-        return 1;
-    }
-
+    std::string url = argv[1];
+    std::string steps_arg;
+    std::string name = "cli";
+    int concurrency = 16;
+    long timeout_ms = 5000;
     std::string json_file;
+
+    bool positional_done = false;
+    double pos_rate = 0.0;
+    double pos_duration = 0.0;
+
     try {
-        for (int i = 4; i < argc; ++i) {
+        int i = 2;
+        if (i < argc && argv[i][0] != '-') {
+            pos_rate = std::stod(argv[i++]);
+            if (i < argc && argv[i][0] != '-') {
+                pos_duration = std::stod(argv[i++]);
+            }
+            positional_done = true;
+        }
+
+        for (; i < argc; ++i) {
             std::string a = argv[i];
-            if (a == "--concurrency" && i + 1 < argc) {
-                cfg.concurrency = std::stoi(argv[++i]);
+            if (a == "--steps" && i + 1 < argc) {
+                steps_arg = argv[++i];
+            } else if (a == "--name" && i + 1 < argc) {
+                name = argv[++i];
+            } else if (a == "--concurrency" && i + 1 < argc) {
+                concurrency = std::stoi(argv[++i]);
             } else if (a == "--timeout" && i + 1 < argc) {
-                cfg.timeout_ms = std::stol(argv[++i]);
+                timeout_ms = std::stol(argv[++i]);
             } else if (a == "--json" && i + 1 < argc) {
                 json_file = argv[++i];
             } else {
@@ -58,11 +95,31 @@ int main(int argc, char** argv) {
             }
         }
     } catch (const std::exception& e) {
-        std::cerr << "Invalid option value: " << e.what() << "\n";
+        std::cerr << "Invalid arguments: " << e.what() << "\n";
         return 1;
     }
 
-    if (cfg.concurrency <= 0 || cfg.timeout_ms <= 0) {
+    ScenarioConfig sc;
+    sc.url = url;
+    sc.concurrency = concurrency;
+    sc.timeout_ms = timeout_ms;
+
+    try {
+        if (!steps_arg.empty()) {
+            sc.steps = parse_steps(steps_arg);
+        } else if (positional_done && pos_rate > 0 && pos_duration > 0) {
+            sc.steps.push_back(StepConfig{pos_rate, pos_duration});
+        } else {
+            std::cerr << "Either positional <rate> <duration> or --steps is required\n";
+            print_usage(argv[0]);
+            return 1;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Invalid steps: " << e.what() << "\n";
+        return 1;
+    }
+
+    if (sc.concurrency <= 0 || sc.timeout_ms <= 0) {
         std::cerr << "concurrency and timeout must be > 0\n";
         return 1;
     }
@@ -70,61 +127,34 @@ int main(int argc, char** argv) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
     auto sender = make_http_sender();
 
-    LoadGenerator gen(cfg, sender);
-    RunResult result = gen.run();
+    std::atomic<bool> stop{false};
+    std::vector<StepResult> steps = run_scenario(sc, sender, stop, nullptr);
 
     curl_global_cleanup();
 
-    if (result.requests.empty()) {
-        if (result.skipped > 0) {
-            std::cerr << "All " << result.skipped << " planned requests were skipped: "
-                      << "no free worker at any tick\n";
-        } else {
-            std::cerr << "No requests were sent\n";
-        }
-        return 3;
-    }
-
-    long success_count = 0;
-    long fail_count = 0;
-    for (const auto& r : result.requests) {
-        if (r.success) ++success_count; else ++fail_count;
-    }
-
-    if (result.skipped > 0) {
-        long long sent = static_cast<long long>(result.requests.size());
-        long long planned = sent + result.skipped;
-        std::cerr << "[warn] skipped " << result.skipped << " of " << planned
-                  << " planned requests: all " << cfg.concurrency << " workers were busy.\n"
-                  << "[warn] The step is not a valid measurement of the service "
-                  << "(the analyzer rejects skipped_count > 0). "
-                  << "Increase --concurrency to at least rate x latency.\n";
-    }
+    ScenarioResult result;
+    result.scenario_name = name;
+    result.status = "completed";
+    result.steps = steps;
 
     if (!json_file.empty()) {
-        StepStats stats = compute_step_stats(1, cfg, result);
-        if (!write_result_json(json_file, stats)) {
+        if (!write_result_json(json_file, result)) {
             std::cerr << "Cannot write " << json_file << "\n";
             return 1;
         }
         std::cerr << "JSON written to " << json_file << "\n";
     } else {
-        std::ostream* out = &std::cout;
-        for (const auto& r : result.requests) {
-            if (r.success) {
-                *out << std::fixed << std::setprecision(3)
-                     << (r.latency_us / 1000.0) << "\n";
-            } else {
-                std::cerr << "request failed: " << r.error
-                          << " (after " << std::fixed << std::setprecision(1)
-                          << (r.latency_us / 1000.0) << " ms)\n";
-            }
-        }
+        write_result_json("-", result);
     }
 
-    if (success_count == 0) {
-        std::cerr << "All " << fail_count << " requests failed\n";
-        return 2;
+    // Отчёт о пропусках — в stderr, чтобы не мешать JSON в stdout.
+    long long total_skipped = 0;
+    for (const auto& s : steps) total_skipped += s.skipped_count;
+    if (total_skipped > 0) {
+        std::cerr << "[warn] " << total_skipped
+                  << " planned requests were skipped across steps: "
+                  << "not enough workers. Increase --concurrency.\n";
+        std::cerr << "[warn] The analyzer rejects steps with skipped_count > 0.\n";
     }
 
     return 0;

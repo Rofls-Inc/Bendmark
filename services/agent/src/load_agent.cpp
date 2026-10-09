@@ -13,6 +13,11 @@
 
 namespace {
 
+struct RunResult {
+    std::vector<RequestResult> requests;
+    long long skipped = 0;
+};
+
 double percentile_ms(const std::vector<long>& sorted_us, int p_permille) {
     if (sorted_us.empty()) return 0.0;
     size_t n = sorted_us.size();
@@ -39,12 +44,11 @@ void write_double(std::ostream& os, double v, int precision = 2) {
     os << s;
 }
 
-} // namespace
-
-LoadGenerator::LoadGenerator(LoadConfig cfg, std::shared_ptr<Sender> sender)
-    : cfg_(std::move(cfg)), sender_(std::move(sender)) {}
-
-RunResult LoadGenerator::run() {
+RunResult run_one_step(const std::string& url,
+                       const StepConfig& step,
+                       const ScenarioConfig& opt,
+                       std::shared_ptr<Sender> sender,
+                       std::atomic<bool>& stop) {
     RunResult out;
     std::mutex results_mtx;
     std::mutex work_mtx;
@@ -55,10 +59,10 @@ RunResult LoadGenerator::run() {
     int outstanding = 0;
     bool stopping = false;
 
-    for (int i = 0; i < cfg_.concurrency; ++i) {
-        workers.emplace_back([&, url = cfg_.url,
-                              timeout = cfg_.timeout_ms,
-                              sender = sender_] {
+    const int concurrency = opt.concurrency;
+
+    for (int i = 0; i < concurrency; ++i) {
+        workers.emplace_back([&, url, timeout = opt.timeout_ms, sender] {
             while (true) {
                 std::chrono::steady_clock::time_point scheduled_at;
                 {
@@ -83,9 +87,9 @@ RunResult LoadGenerator::run() {
         });
     }
 
-    const auto interval = std::chrono::duration<double>(1.0 / cfg_.rate_per_sec);
+    const auto interval = std::chrono::duration<double>(1.0 / step.target_rps);
     const auto start_time = std::chrono::steady_clock::now();
-    const auto duration = std::chrono::duration<double>(cfg_.duration_seconds);
+    const auto duration = std::chrono::duration<double>(step.duration_seconds);
     const auto end_time = start_time +
         std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration);
     auto next_tick = start_time;
@@ -96,7 +100,7 @@ RunResult LoadGenerator::run() {
         bool queued = false;
         {
             std::lock_guard<std::mutex> lk(work_mtx);
-            if (outstanding >= cfg_.concurrency) {
+            if (outstanding >= concurrency) {
                 ++out.skipped;
             } else {
                 ++outstanding;
@@ -105,6 +109,8 @@ RunResult LoadGenerator::run() {
             }
         }
         if (queued) work_cv.notify_one();
+
+        if (stop.load()) break;
 
         next_tick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval);
     }
@@ -119,11 +125,11 @@ RunResult LoadGenerator::run() {
     return out;
 }
 
-StepStats compute_step_stats(int index, const LoadConfig& cfg, const RunResult& run) {
-    StepStats s;
+StepResult compute_step_result(int index, const StepConfig& step, const RunResult& run) {
+    StepResult s;
     s.index = index;
-    s.target_rps = cfg.rate_per_sec;
-    s.duration_seconds = cfg.duration_seconds;
+    s.target_rps = step.target_rps;
+    s.duration_seconds = step.duration_seconds;
     s.skipped_count = run.skipped;
 
     std::vector<long> latencies;
@@ -138,8 +144,8 @@ StepStats compute_step_stats(int index, const LoadConfig& cfg, const RunResult& 
 
     s.request_count = static_cast<long long>(latencies.size());
 
-    s.throughput_rps = cfg.duration_seconds > 0
-        ? static_cast<double>(s.request_count) / cfg.duration_seconds
+    s.throughput_rps = step.duration_seconds > 0
+        ? static_cast<double>(s.request_count) / step.duration_seconds
         : 0.0;
 
     if (s.request_count > 0) {
@@ -157,26 +163,78 @@ StepStats compute_step_stats(int index, const LoadConfig& cfg, const RunResult& 
     return s;
 }
 
-bool write_result_json(const std::string& path, const StepStats& s) {
+} // namespace
+
+std::optional<StepResult> run_step(const std::string& url,
+                                   const StepConfig& step,
+                                   int index,
+                                   const ScenarioConfig& opt,
+                                   std::shared_ptr<Sender> sender,
+                                   std::atomic<bool>& stop) {
+    RunResult run = run_one_step(url, step, opt, sender, stop);
+
+    if (stop.load()) {
+        return std::nullopt;
+    }
+
+    return compute_step_result(index, step, run);
+}
+
+std::vector<StepResult> run_scenario(const ScenarioConfig& sc,
+                                     std::shared_ptr<Sender> sender,
+                                     std::atomic<bool>& stop,
+                                     const StepCallback& on_step) {
+    std::vector<StepResult> results;
+    results.reserve(sc.steps.size());
+
+    for (size_t i = 0; i < sc.steps.size(); ++i) {
+        if (stop.load()) break;
+
+        auto r = run_step(sc.url, sc.steps[i], static_cast<int>(i + 1),
+                          sc, sender, stop);
+        if (!r) break;
+
+        if (on_step) on_step(*r);
+        results.push_back(*r);
+    }
+
+    return results;
+}
+
+bool write_result_json(const std::string& path, const ScenarioResult& result) {
     std::ofstream out(path);
     if (!out) return false;
 
     out << "{\n";
-    out << "  \"index\": " << s.index << ",\n";
-    out << "  \"target_rps\": ";        write_double(out, s.target_rps);       out << ",\n";
-    out << "  \"duration_seconds\": ";  write_double(out, s.duration_seconds); out << ",\n";
-    out << "  \"request_count\": "    << s.request_count    << ",\n";
-    out << "  \"throughput_rps\": ";  write_double(out, s.throughput_rps);    out << ",\n";
-    out << "  \"latency_ms\": { "
-        << "\"p50\": "; write_double(out, s.latency_p50_ms, 3);
-    out << ", \"p90\": "; write_double(out, s.latency_p90_ms, 3);
-    out << ", \"p99\": "; write_double(out, s.latency_p99_ms, 3);
-    out << " },\n";
-    out << "  \"errors\": { "
-        << "\"count\": " << s.error_count
-        << ", \"rate_percent\": "; write_double(out, s.error_rate_percent, 1);
-    out << " },\n";
-    out << "  \"skipped_count\": " << s.skipped_count << "\n";
+    out << "  \"scenario_name\": \"" << result.scenario_name << "\",\n";
+    out << "  \"status\": \"" << result.status << "\",\n";
+    out << "  \"steps\": [\n";
+
+    for (size_t i = 0; i < result.steps.size(); ++i) {
+        const auto& s = result.steps[i];
+
+        out << "    {\n";
+        out << "      \"index\": " << s.index << ",\n";
+        out << "      \"target_rps\": ";       write_double(out, s.target_rps);       out << ",\n";
+        out << "      \"duration_seconds\": "; write_double(out, s.duration_seconds); out << ",\n";
+        out << "      \"request_count\": "    << s.request_count << ",\n";
+        out << "      \"throughput_rps\": ";   write_double(out, s.throughput_rps);    out << ",\n";
+        out << "      \"latency_ms\": { "
+            << "\"p50\": "; write_double(out, s.latency_p50_ms, 3);
+        out << ", \"p90\": "; write_double(out, s.latency_p90_ms, 3);
+        out << ", \"p99\": "; write_double(out, s.latency_p99_ms, 3);
+        out << " },\n";
+        out << "      \"errors\": { "
+            << "\"count\": " << s.error_count
+            << ", \"rate_percent\": "; write_double(out, s.error_rate_percent, 1);
+        out << " },\n";
+        out << "      \"skipped_count\": " << s.skipped_count << "\n";
+        out << "    }";
+        if (i + 1 < result.steps.size()) out << ",";
+        out << "\n";
+    }
+
+    out << "  ]\n";
     out << "}\n";
 
     return static_cast<bool>(out);

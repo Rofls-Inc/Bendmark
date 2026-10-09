@@ -2,36 +2,26 @@
 
 #include "sender.hpp"
 
-#include <cstdint>
+#include <atomic>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
-struct LoadConfig {
+struct StepConfig {
+    double target_rps = 0.0;
+    double duration_seconds = 0.0;
+};
+
+struct ScenarioConfig {
     std::string url;
-    double rate_per_sec = 1.0;
-    double duration_seconds = 10.0;
+    std::vector<StepConfig> steps;
     int concurrency = 16;
     long timeout_ms = 5000;
 };
 
-struct RunResult {
-    std::vector<RequestResult> requests;
-    long long skipped = 0;
-};
-
-class LoadGenerator {
-public:
-    LoadGenerator(LoadConfig cfg, std::shared_ptr<Sender> sender);
-
-    RunResult run();
-
-private:
-    LoadConfig cfg_;
-    std::shared_ptr<Sender> sender_;
-};
-
-struct StepStats {
+struct StepResult {
     int index = 0;
     double target_rps = 0.0;
     double duration_seconds = 0.0;
@@ -45,6 +35,24 @@ struct StepStats {
     long long skipped_count = 0;
 };
 
-StepStats compute_step_stats(int index, const LoadConfig& cfg, const RunResult& run);
+struct ScenarioResult {
+    std::string scenario_name;
+    std::string status;
+    std::vector<StepResult> steps;
+};
 
-bool write_result_json(const std::string& path, const StepStats& stats);
+using StepCallback = std::function<void(const StepResult&)>;
+
+std::optional<StepResult> run_step(const std::string& url,
+                                   const StepConfig& step,
+                                   int index,
+                                   const ScenarioConfig& opt,
+                                   std::shared_ptr<Sender> sender,
+                                   std::atomic<bool>& stop);
+
+std::vector<StepResult> run_scenario(const ScenarioConfig& sc,
+                                     std::shared_ptr<Sender> sender,
+                                     std::atomic<bool>& stop,
+                                     const StepCallback& on_step);
+
+bool write_result_json(const std::string& path, const ScenarioResult& result);
