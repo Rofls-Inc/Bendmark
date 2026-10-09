@@ -35,7 +35,16 @@ export function rpsAxis(points: ChartPoint[]): Axis {
 
 // Логарифмическая ось p99 по декадам с делениями 1-2-5. Порог всегда попадает на ось.
 export function p99Axis(points: ChartPoint[], threshold = P99_THRESHOLD_MS): Axis {
-  const values = points.map((p) => p.p99).filter((v): v is number => v !== null)
+  return logAxis(points.map((p) => p.p99), threshold)
+}
+
+// То же для всех трёх перцентилей сразу
+export function latencyAxis(points: LatencyPoint[], threshold = P99_THRESHOLD_MS): Axis {
+  return logAxis(points.flatMap((p) => [p.p50, p.p90, p.p99]), threshold)
+}
+
+function logAxis(raw: (number | null)[], threshold: number): Axis {
+  const values = raw.filter((v): v is number => v !== null)
   const lo = 10 ** Math.floor(Math.log10(Math.min(threshold, ...values)))
   const hi = 10 ** Math.ceil(Math.log10(Math.max(threshold, ...values) * 1.05))
   const ticks: number[] = []
@@ -77,13 +86,21 @@ export interface Headline {
 
 export function headline(run: Run): Headline {
   const limit = run.limit
+  if (run.status === 'failed')
+    return { value: null, kind: 'none', caption: 'Сбой прогона: предел не посчитан' }
   if (!limit)
-    return { value: null, kind: 'none', caption: 'Предел ещё не посчитан' }
+    return {
+      value: null,
+      kind: 'none',
+      caption: run.status === 'aborted' ? 'Прогон остановлен, предел ещё не посчитан' : 'Предел ещё не посчитан',
+    }
   if (!limit.found)
     return {
       value: limit.limit_rps ?? null,
       kind: 'lower-bound',
-      caption: 'Предел не найден: сервис выдержал все ступени, держит не меньше',
+      caption: run.status === 'aborted'
+        ? 'Прогон остановлен: на пройденных ступенях отказа не было, сервис держит не меньше'
+        : 'Предел не найден: сервис выдержал все ступени, держит не меньше',
     }
   if (limit.limit_rps == null)
     return { value: null, kind: 'below-first', caption: 'Предел ниже первой ступени' }
@@ -109,4 +126,81 @@ export function formatDuration(seconds: number): string {
 
 export function formatNumber(value: number, digits = 0): string {
   return value.toLocaleString('ru-RU', { maximumFractionDigits: digits })
+}
+
+export interface LatencyPoint {
+  target: number
+  // null, если на ступени не было измерений: на логарифмической оси ноль не нарисовать
+  p50: number | null
+  p90: number | null
+  p99: number | null
+}
+
+export function toLatencyPoints(steps: StepResult[]): LatencyPoint[] {
+  const positive = (value: number, s: StepResult) => (s.request_count > 0 && value > 0 ? value : null)
+  return [...steps]
+    .sort((a, b) => a.index - b.index)
+    .map((s) => ({
+      target: s.target_rps,
+      p50: positive(s.latency_ms.p50, s),
+      p90: positive(s.latency_ms.p90, s),
+      p99: positive(s.latency_ms.p99, s),
+    }))
+}
+
+// Номер первой ступени, где агент пропускал запросы. Анализатор берёт только ступени до неё.
+export function firstSkippedStep(steps: StepResult[]): number | null {
+  const skipped = steps.filter((s) => (s.skipped_count ?? 0) > 0).map((s) => s.index)
+  return skipped.length > 0 ? Math.min(...skipped) : null
+}
+
+export interface Progress {
+  elapsedSeconds: number
+  totalSeconds: number
+  // 0..1 для полосы прогресса
+  fraction: number
+  // Номер ступени по времени (с единицы), null до старта
+  step: number | null
+  stepElapsedSeconds: number
+}
+
+// Где прогон сейчас по часам. Агент присылает ступень только после её конца,
+// поэтому текущую ступень считаем по времени от started_at.
+export function progress(run: Run, now: number): Progress {
+  const durations = run.scenario.steps.map((s) => s.duration_seconds)
+  const totalSeconds = durations.reduce((sum, d) => sum + d, 0)
+  const started = run.started_at ? Date.parse(run.started_at) : NaN
+  if (run.status !== 'running' || Number.isNaN(started))
+    return { elapsedSeconds: 0, totalSeconds, fraction: 0, step: null, stepElapsedSeconds: 0 }
+
+  // Пришедшие ступени точно закончились: время не отстаёт от них, даже если часы браузера спешат назад
+  const done = durations.slice(0, run.steps?.length ?? 0).reduce((sum, d) => sum + d, 0)
+  const elapsed = Math.max(done, Math.min(totalSeconds, Math.max(0, (now - started) / 1000)))
+
+  // Время вышло, а последняя ступень ещё не пришла: остаёмся на ней, а не «после конца»
+  let step = durations.length
+  let stepElapsed = durations.at(-1) ?? 0
+  let rest = elapsed
+  for (let i = 0; i < durations.length; i++) {
+    if (rest < durations[i]) {
+      step = i + 1
+      stepElapsed = rest
+      break
+    }
+    rest -= durations[i]
+  }
+
+  return {
+    elapsedSeconds: elapsed,
+    totalSeconds,
+    fraction: totalSeconds > 0 ? elapsed / totalSeconds : 0,
+    step,
+    stepElapsedSeconds: stepElapsed,
+  }
+}
+
+// 201 -> «3:21»
+export function formatClock(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds))
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }

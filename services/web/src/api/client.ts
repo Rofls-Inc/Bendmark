@@ -43,6 +43,21 @@ export async function getRun(id: string, signal?: AbortSignal): Promise<Run> {
   throw await toError(response)
 }
 
+// 200 - прогон уже остановлен; 202 - остановка идёт, итог придёт в GET /runs/{id}
+export async function stopRun(id: string): Promise<{ run: Run; pending: boolean }> {
+  const response = await fetch(`${BASE}/runs/${encodeURIComponent(id)}/stop`, { method: 'POST' })
+  if (response.status === 200 || response.status === 202)
+    return { run: await response.json(), pending: response.status === 202 }
+  if (response.status === 404)
+    throw new ApiError(404, 'Прогон не найден')
+  throw await toError(response)
+}
+
+// result.json для анализатора: есть только у completed и aborted
+export function resultUrl(id: string): string {
+  return `${BASE}/runs/${encodeURIComponent(id)}/result`
+}
+
 export async function toError(response: Response): Promise<Error> {
   const body = await readJson(response)
   const errors = body?.errors

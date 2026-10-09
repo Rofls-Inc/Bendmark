@@ -1,7 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import type { Limit, Run, StepResult } from '../api/types'
 import { demoRun } from '../demo/demoRun'
-import { currentStep, formatDuration, headline, p99Axis, rpsAxis, stepVerdict, toChartPoints } from './view'
+import {
+  currentStep,
+  firstSkippedStep,
+  formatClock,
+  formatDuration,
+  headline,
+  latencyAxis,
+  p99Axis,
+  progress,
+  rpsAxis,
+  stepVerdict,
+  toChartPoints,
+  toLatencyPoints,
+} from './view'
 
 const step = (index: number, overrides: Partial<StepResult> = {}): StepResult => ({
   index,
@@ -111,5 +124,81 @@ describe('оси графика', () => {
 
   it('без измерений p99 ось строится по порогу', () => {
     expect(p99Axis([]).domain).toEqual([100, 1000])
+  })
+})
+
+describe('toLatencyPoints', () => {
+  it('все три перцентиля, ступень без измерений пустая', () => {
+    const empty = step(2, { request_count: 0, latency_ms: { p50: 0, p90: 0, p99: 0 } })
+    expect(toLatencyPoints([empty, step(1)])).toEqual([
+      { target: 100, p50: 10, p90: 20, p99: 30 },
+      { target: 200, p50: null, p90: null, p99: null },
+    ])
+  })
+
+  it('ось задержки захватывает p50, а не только p99', () => {
+    const points = toLatencyPoints([step(1, { latency_ms: { p50: 3, p90: 20, p99: 30 } })])
+    expect(latencyAxis(points).domain).toEqual([1, 1000])
+  })
+})
+
+describe('firstSkippedStep', () => {
+  it('первая ступень с пропусками', () => {
+    expect(firstSkippedStep([step(1), step(2, { skipped_count: 5 }), step(3, { skipped_count: 9 })])).toBe(2)
+  })
+
+  it('без пропусков и без поля skipped_count', () => {
+    expect(firstSkippedStep([step(1, { skipped_count: 0 }), step(2)])).toBeNull()
+  })
+})
+
+describe('progress', () => {
+  // Три ступени по 10 с
+  const scenarioSteps = [100, 200, 300].map((target_rps) => ({ target_rps, duration_seconds: 10 }))
+  const start = Date.parse('2026-10-09T12:00:00Z')
+  const running = (steps: StepResult[] = []): Run => ({
+    ...demoRun,
+    status: 'running',
+    scenario: { ...demoRun.scenario, steps: scenarioSteps },
+    started_at: new Date(start).toISOString(),
+    steps,
+  })
+
+  it('ступень и время по часам', () => {
+    expect(progress(running(), start + 15_000)).toEqual({
+      elapsedSeconds: 15, totalSeconds: 30, fraction: 0.5, step: 2, stepElapsedSeconds: 5,
+    })
+  })
+
+  it('не отстаёт от пришедших ступеней', () => {
+    expect(progress(running([step(1), step(2)]), start + 5_000)).toMatchObject({ elapsedSeconds: 20, step: 3 })
+  })
+
+  it('время вышло, а последняя ступень не пришла: остаётся на последней', () => {
+    expect(progress(running([step(1), step(2)]), start + 60_000))
+      .toMatchObject({ elapsedSeconds: 30, fraction: 1, step: 3, stepElapsedSeconds: 10 })
+  })
+
+  it('до старта и после конца прогресса нет', () => {
+    expect(progress({ ...running(), status: 'created', started_at: null }, start).step).toBeNull()
+    expect(progress({ ...running(), status: 'completed' }, start).step).toBeNull()
+  })
+})
+
+describe('headline по статусу', () => {
+  it('сбой: предел не посчитан, даже если analyzer что-то вернул', () => {
+    expect(headline({ ...demoRun, status: 'failed' })).toMatchObject({ kind: 'none', value: null })
+  })
+
+  it('остановленный без предела и с нижней оценкой', () => {
+    expect(headline({ ...demoRun, status: 'aborted', limit: null }).caption).toContain('остановлен')
+    expect(headline({ ...demoRun, status: 'aborted', limit: { found: false, limit_rps: 200, reasons: [] } }))
+      .toMatchObject({ kind: 'lower-bound', value: 200 })
+  })
+})
+
+describe('formatClock', () => {
+  it.each([[0, '0:00'], [65.9, '1:05'], [315, '5:15']])('%d -> %s', (seconds, text) => {
+    expect(formatClock(seconds)).toBe(text)
   })
 })

@@ -28,6 +28,8 @@ export interface StepResult {
   throughput_rps: number
   latency_ms: { p50: number; p90: number; p99: number }
   errors: { count: number; rate_percent: number }
+  // Тики, которые агент не отправил: все воркеры были заняты. Замер такой ступени неточный.
+  skipped_count?: number
 }
 
 export interface Limit {
@@ -42,8 +44,12 @@ export interface Run {
   scenario: Scenario
   status: RunStatus
   created_at: string
-  // Результаты ступеней придут из агента (#33), предел из анализатора (#34).
-  // Пока координатор их не отдаёт, поэтому поля необязательные.
+  started_at?: string | null
+  finished_at?: string | null
+  // Причина failed (или истёкшего срока у aborted), текст для человека
+  error?: string | null
+  // Полные ступени по мере прихода от агента
   steps?: StepResult[]
+  // Предел появится, когда координатор начнёт вызывать анализатор (#34)
   limit?: Limit | null
 }

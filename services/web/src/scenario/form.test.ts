@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_STEPS, buildSteps, defaultForm, mapServerErrors, toScenario, totalSeconds } from './form'
+import { MAX_STEPS, buildSteps, defaultForm, formFromScenario, mapServerErrors, toScenario, totalSeconds } from './form'
 
 describe('buildSteps', () => {
   it('собирает ступени как в examples/scenario.yaml', () => {
@@ -89,5 +89,35 @@ describe('mapServerErrors', () => {
   it('ошибка всего списка ступеней без номера', () => {
     expect(mapServerErrors({ steps: ['Нужна хотя бы одна ступень'] }))
       .toEqual({ stepRps: 'Нужна хотя бы одна ступень' })
+  })
+})
+
+describe('formFromScenario', () => {
+  const built = buildSteps(defaultForm)
+  const scenario = toScenario(defaultForm, built.ok ? built.steps : [])
+
+  it('равномерные ступени восстанавливаются точно', () => {
+    const { form, exact } = formFromScenario(scenario)
+    expect(exact).toBe(true)
+    expect(form).toEqual(defaultForm)
+  })
+
+  it('неравномерные ступени: по первой и последней, exact = false', () => {
+    const uneven = { ...scenario, steps: [100, 150, 400].map((target_rps) => ({ target_rps, duration_seconds: 30 })) }
+    const { form, exact } = formFromScenario(uneven)
+    expect(exact).toBe(false)
+    expect(form).toMatchObject({ fromRps: '100', toRps: '400', stepRps: '50', durationSeconds: '30' })
+  })
+
+  it('разная длительность ступеней тоже не точная', () => {
+    const mixed = { ...scenario, steps: [{ target_rps: 100, duration_seconds: 30 }, { target_rps: 200, duration_seconds: 60 }] }
+    expect(formFromScenario(mixed).exact).toBe(false)
+  })
+
+  it('одна ступень', () => {
+    const single = { ...scenario, steps: [{ target_rps: 250, duration_seconds: 10 }] }
+    const { form, exact } = formFromScenario(single)
+    expect(exact).toBe(true)
+    expect(form).toMatchObject({ fromRps: '250', toRps: '250', durationSeconds: '10' })
   })
 })

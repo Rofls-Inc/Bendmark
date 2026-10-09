@@ -67,6 +67,34 @@ export function toScenario(form: ScenarioForm, steps: Step[]): Scenario {
   }
 }
 
+// Обратная операция к buildSteps: форма по готовому сценарию (кнопка «Повторить»).
+// Если ступени не равномерный рост с одной длительностью, форма их точно не повторит:
+// берём первую и последнюю ступень и честно говорим об этом.
+export function formFromScenario(scenario: Scenario): { form: ScenarioForm; exact: boolean } {
+  const steps = scenario.steps
+  const first = steps[0]
+  const last = steps.at(-1)
+  const base = { ...defaultForm, name: scenario.name, url: scenario.target.url, method: scenario.target.method }
+  if (!first || !last)
+    return { form: base, exact: false }
+
+  const step = steps.length > 1 ? steps[1].target_rps - first.target_rps : 0
+  const form: ScenarioForm = {
+    ...base,
+    fromRps: String(first.target_rps),
+    toRps: String(last.target_rps),
+    stepRps: String(step > 0 ? round(step) : defaultForm.stepRps),
+    durationSeconds: String(first.duration_seconds),
+  }
+
+  const rebuilt = buildSteps(form)
+  const exact = rebuilt.ok
+    && rebuilt.steps.length === steps.length
+    && rebuilt.steps.every((s, i) =>
+      Math.abs(s.target_rps - steps[i].target_rps) < 1e-6 && s.duration_seconds === steps[i].duration_seconds)
+  return { form, exact }
+}
+
 export function totalSeconds(steps: Step[]): number {
   return steps.reduce((sum, s) => sum + s.duration_seconds, 0)
 }
