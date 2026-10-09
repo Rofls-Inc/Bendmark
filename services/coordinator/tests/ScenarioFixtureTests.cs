@@ -80,4 +80,150 @@ public class ScenarioFixtureTests(WebApplicationFactory<Program> factory)
         using var response = await PostFixture("ramp.json", "text/plain");
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
     }
+
+    // строгий разбор. Полные имена типов - чтобы не зависеть от using в начале файла
+
+    private async Task<HttpResponseMessage> PostRaw(string body, string? contentType)
+    {
+        var content = new ByteArrayContent(System.Text.Encoding.UTF8.GetBytes(body));
+        if (contentType is not null)
+            content.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse(contentType);
+        return await client.PostAsync("/runs", content);
+    }
+
+    // Ответ 400, и ошибки ровно у перечисленных полей
+    private static async Task AssertFieldErrors(HttpResponseMessage response, params string[] fields)
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var actual = body.RootElement.GetProperty("errors").EnumerateObject().Select(p => p.Name);
+        Assert.Equal(fields.Order(), actual.Order());
+    }
+
+    [Theory]
+    [InlineData("unknown-field.json", "application/json")]
+    [InlineData("unknown-field.yaml", "application/yaml")]
+    public async Task Typo_in_field_name_is_400_with_its_path(string name, string contentType)
+    {
+        using var response = await PostFixture(name, contentType);
+        await AssertFieldErrors(response, "steps[1].target_rsp");
+    }
+
+    [Fact]
+    public async Task Unknown_fields_are_reported_at_every_level_in_json()
+    {
+        const string json = """
+            {
+              "name": "x", "nmae": "y",
+              "target": { "url": "http://abstock:8080/", "method": "GET", "urll": "z" },
+              "steps": [ { "target_rps": 100, "duration_seconds": 45, "duration": 1 } ]
+            }
+            """;
+        using var response = await PostRaw(json, "application/json");
+        await AssertFieldErrors(response, "nmae", "target.urll", "steps[0].duration");
+    }
+
+    [Fact]
+    public async Task Unknown_fields_are_reported_at_every_level_in_yaml()
+    {
+        const string yaml = """
+            name: x
+            nmae: y
+            target:
+              url: http://abstock:8080/
+              method: GET
+              urll: z
+            steps:
+              - target_rps: 100
+                duration_seconds: 45
+                duration: 1
+            """;
+        using var response = await PostRaw(yaml, "application/yaml");
+        await AssertFieldErrors(response, "nmae", "target.urll", "steps[0].duration");
+    }
+
+    [Fact]
+    public async Task Unknown_field_error_lists_allowed_fields()
+    {
+        using var response = await PostRaw("""{"name": "x", "targett": {}}""", "application/json");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var message = body.RootElement.GetProperty("errors").GetProperty("targett")[0].GetString();
+        Assert.Equal("Неизвестное поле. Допустимые: name, target, steps", message);
+    }
+
+    [Fact]
+    public async Task Field_names_are_case_sensitive()
+    {
+        using var response = await PostRaw(ReadFixture("ramp.json").Replace("\"name\"", "\"Name\""), "application/json");
+        await AssertFieldErrors(response, "Name");
+    }
+
+    [Fact]
+    public async Task Decreasing_load_is_400()
+    {
+        using var response = await PostFixture("decreasing-rps.json", "application/json");
+        await AssertFieldErrors(response, "steps[1].target_rps");
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("[]")]
+    [InlineData("\"ramp\"")]
+    public async Task Json_without_scenario_object_is_body_error(string json)
+    {
+        using var response = await PostRaw(json, "application/json");
+        await AssertFieldErrors(response, "body");
+    }
+
+    [Fact]
+    public async Task Json_null_step_is_step_error()
+    {
+        const string json = """
+            {"name": "x", "target": {"url": "http://abstock:8080/", "method": "GET"}, "steps": [null]}
+            """;
+        using var response = await PostRaw(json, "application/json");
+        await AssertFieldErrors(response, "steps[0]");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("# только комментарий")]
+    public async Task Empty_yaml_is_body_error(string yaml)
+    {
+        using var response = await PostRaw(yaml, "application/yaml");
+        await AssertFieldErrors(response, "body");
+    }
+
+    [Fact]
+    public async Task Yaml_wrong_type_is_body_error_with_position()
+    {
+        var yaml = ReadFixture("ramp.yaml").Replace("target_rps: 150", "target_rps: fast");
+        using var response = await PostRaw(yaml, "application/yaml");
+        await AssertFieldErrors(response, "body");
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Contains("строка", body.RootElement.GetProperty("errors").GetProperty("body")[0].GetString());
+    }
+
+    [Theory]
+    [InlineData("application/json; charset=utf-8", "ramp.json")]
+    [InlineData("application/yaml", "ramp.yaml")]
+    [InlineData("application/x-yaml", "ramp.yaml")]
+    [InlineData("text/yaml", "ramp.yaml")]
+    [InlineData("APPLICATION/YAML; charset=utf-8", "ramp.yaml")]
+    public async Task Supported_content_types_are_accepted(string contentType, string name)
+    {
+        using var response = await PostRaw(ReadFixture(name), contentType);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("text/plain")]
+    [InlineData("application/xml")]
+    [InlineData(null)]
+    public async Task Other_content_types_are_415(string? contentType)
+    {
+        using var response = await PostRaw(ReadFixture("ramp.json"), contentType);
+        Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
+    }
 }
