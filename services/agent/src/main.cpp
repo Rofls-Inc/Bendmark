@@ -1,5 +1,7 @@
 #include "load_agent.hpp"
+#include "sender.hpp"
 
+#include <curl/curl.h>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
@@ -65,8 +67,13 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    LoadGenerator gen(cfg);
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    auto sender = make_http_sender();
+
+    LoadGenerator gen(cfg, sender);
     RunResult result = gen.run();
+
+    curl_global_cleanup();
 
     if (result.requests.empty()) {
         if (result.skipped > 0) {

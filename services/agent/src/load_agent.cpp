@@ -1,10 +1,10 @@
 #include "load_agent.hpp"
 
-#include <curl/curl.h>
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <cstdio>
+#include <deque>
 #include <fstream>
 #include <mutex>
 #include <thread>
@@ -12,54 +12,6 @@
 #include <vector>
 
 namespace {
-
-size_t discard_body(char*, size_t size, size_t nmemb, void*) {
-    return size * nmemb;
-}
-
-RequestResult do_request(const std::string& url, long timeout_ms,
-                         std::chrono::steady_clock::time_point scheduled_at) {
-    RequestResult r;
-
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        r.error = "curl_easy_init failed";
-        return r;
-    }
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_body);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, timeout_ms);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-
-    auto start = std::chrono::steady_clock::now();
-    CURLcode rc = curl_easy_perform(curl);
-    auto end = std::chrono::steady_clock::now();
-
-    r.latency_us = std::chrono::duration_cast<std::chrono::microseconds>(
-        end - scheduled_at).count();
-    r.send_lag_us = std::chrono::duration_cast<std::chrono::microseconds>(
-        start - scheduled_at).count();
-
-    if (rc == CURLE_OK) {
-        long code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
-        r.http_code = code;
-
-        if (code >= 200 && code < 400) {
-            r.success = true;
-        } else {
-            r.error = "HTTP " + std::to_string(code);
-        }
-    } else {
-        r.error = curl_easy_strerror(rc);
-    }
-
-    curl_easy_cleanup(curl);
-    return r;
-}
 
 double percentile_ms(const std::vector<long>& sorted_us, int p_permille) {
     if (sorted_us.empty()) return 0.0;
@@ -89,11 +41,10 @@ void write_double(std::ostream& os, double v, int precision = 2) {
 
 } // namespace
 
-LoadGenerator::LoadGenerator(LoadConfig cfg) : cfg_(std::move(cfg)) {}
+LoadGenerator::LoadGenerator(LoadConfig cfg, std::shared_ptr<Sender> sender)
+    : cfg_(std::move(cfg)), sender_(std::move(sender)) {}
 
 RunResult LoadGenerator::run() {
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-
     RunResult out;
     std::mutex results_mtx;
     std::mutex work_mtx;
@@ -105,7 +56,9 @@ RunResult LoadGenerator::run() {
     bool stopping = false;
 
     for (int i = 0; i < cfg_.concurrency; ++i) {
-        workers.emplace_back([&, url = cfg_.url, timeout = cfg_.timeout_ms] {
+        workers.emplace_back([&, url = cfg_.url,
+                              timeout = cfg_.timeout_ms,
+                              sender = sender_] {
             while (true) {
                 std::chrono::steady_clock::time_point scheduled_at;
                 {
@@ -116,7 +69,7 @@ RunResult LoadGenerator::run() {
                     ready.pop_front();
                 }
 
-                RequestResult r = do_request(url, timeout, scheduled_at);
+                RequestResult r = sender->send(url, timeout, scheduled_at);
 
                 {
                     std::lock_guard<std::mutex> lk(results_mtx);
@@ -163,7 +116,6 @@ RunResult LoadGenerator::run() {
     work_cv.notify_all();
     for (auto& w : workers) w.join();
 
-    curl_global_cleanup();
     return out;
 }
 
@@ -211,10 +163,10 @@ bool write_result_json(const std::string& path, const StepStats& s) {
 
     out << "{\n";
     out << "  \"index\": " << s.index << ",\n";
-    out << "  \"target_rps\": ";        write_double(out, s.target_rps);      out << ",\n";
+    out << "  \"target_rps\": ";        write_double(out, s.target_rps);       out << ",\n";
     out << "  \"duration_seconds\": ";  write_double(out, s.duration_seconds); out << ",\n";
     out << "  \"request_count\": "    << s.request_count    << ",\n";
-    out << "  \"throughput_rps\": ";  write_double(out, s.throughput_rps);   out << ",\n";
+    out << "  \"throughput_rps\": ";  write_double(out, s.throughput_rps);    out << ",\n";
     out << "  \"latency_ms\": { "
         << "\"p50\": "; write_double(out, s.latency_p50_ms, 3);
     out << ", \"p90\": "; write_double(out, s.latency_p90_ms, 3);
