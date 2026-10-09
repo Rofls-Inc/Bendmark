@@ -2,6 +2,7 @@
 #include "sender.hpp"
 
 #include <curl/curl.h>
+#include <atomic>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -27,23 +28,30 @@ std::vector<StepConfig> parse_steps(const std::string& s) {
     std::vector<StepConfig> steps;
     std::stringstream ss(s);
     std::string pair;
+
     while (std::getline(ss, pair, ',')) {
         if (pair.empty()) continue;
+
         auto colon = pair.find(':');
         if (colon == std::string::npos) {
             throw std::runtime_error("bad step (expected RATE:DURATION): " + pair);
         }
+
         StepConfig step;
         step.target_rps = std::stod(pair.substr(0, colon));
         step.duration_seconds = std::stod(pair.substr(colon + 1));
+
         if (step.target_rps <= 0 || step.duration_seconds <= 0) {
             throw std::runtime_error("step values must be > 0: " + pair);
         }
+
         steps.push_back(step);
     }
+
     if (steps.empty()) {
         throw std::runtime_error("--steps is empty");
     }
+
     return steps;
 }
 
@@ -68,6 +76,7 @@ int main(int argc, char** argv) {
 
     try {
         int i = 2;
+
         if (i < argc && argv[i][0] != '-') {
             pos_rate = std::stod(argv[i++]);
             if (i < argc && argv[i][0] != '-') {
@@ -108,7 +117,10 @@ int main(int argc, char** argv) {
         if (!steps_arg.empty()) {
             sc.steps = parse_steps(steps_arg);
         } else if (positional_done && pos_rate > 0 && pos_duration > 0) {
-            sc.steps.push_back(StepConfig{pos_rate, pos_duration});
+            StepConfig single;
+            single.target_rps = pos_rate;
+            single.duration_seconds = pos_duration;
+            sc.steps.push_back(single);
         } else {
             std::cerr << "Either positional <rate> <duration> or --steps is required\n";
             print_usage(argv[0]);
@@ -144,17 +156,22 @@ int main(int argc, char** argv) {
         }
         std::cerr << "JSON written to " << json_file << "\n";
     } else {
-        write_result_json("-", result);
+        if (!write_result_json("-", result)) {
+            std::cerr << "Cannot write JSON to stdout\n";
+            return 1;
+        }
     }
 
-    // Отчёт о пропусках — в stderr, чтобы не мешать JSON в stdout.
     long long total_skipped = 0;
-    for (const auto& s : steps) total_skipped += s.skipped_count;
+    for (const auto& s : steps) {
+        total_skipped += s.skipped_count;
+    }
+
     if (total_skipped > 0) {
         std::cerr << "[warn] " << total_skipped
-                  << " planned requests were skipped across steps: "
-                  << "not enough workers. Increase --concurrency.\n";
-        std::cerr << "[warn] The analyzer rejects steps with skipped_count > 0.\n";
+                  << " planned requests were skipped across steps: not enough workers.\n"
+                  << "[warn] The analyzer rejects steps with skipped_count > 0. "
+                  << "Increase --concurrency.\n";
     }
 
     return 0;
