@@ -20,12 +20,16 @@ public readonly record struct StopResult(StopOutcome Outcome, Run? Run);
 // в конечный статус происходит один раз, а полученные ступени не теряются
 public sealed class RunExecutor(RunStore store, IAgentRunner agent, ILogger<RunExecutor> logger)
 {
-    // Сколько ждать завершения вызова Run после успешного Stop
-    private static readonly TimeSpan StopGrace = TimeSpan.FromSeconds(10);
+    // Время ответа POST /runs/{id}/stop не больше StopCallTimeout + FinishGrace + CancelGrace,
+    // то есть Agent:RequestTimeoutSeconds + 10 с (15 с по умолчанию); см. README.
 
-    // Сколько ждать, если агент ответил, что такого прогона у него нет:
-    // либо он уже закончил и поток вот-вот завершится с OK, либо Run до него ещё не дошёл
-    private static readonly TimeSpan NotRunningGrace = TimeSpan.FromSeconds(2);
+    // Сколько ждать конца потока Run после Stop. Если агент остановил прогон, поток
+    // завершится сразу. Если ответил, что прогона нет, — либо он уже закончил и OK
+    // вот-вот придёт, либо Run до агента ещё не дошёл, и тогда вызов отменяем сами
+    private static readonly TimeSpan FinishGrace = TimeSpan.FromSeconds(3);
+
+    // Сколько ждать после отмены вызова: отмена локальная, поток завершается сразу
+    private static readonly TimeSpan CancelGrace = TimeSpan.FromSeconds(2);
 
     private readonly Lock _gate = new();
     private ActiveRun? _active;
@@ -102,7 +106,11 @@ public sealed class RunExecutor(RunStore store, IAgentRunner agent, ILogger<RunE
         StatusCode.Cancelled when coordinatorStopping => (RunStatus.Aborted, "Координатор остановлен"),
         StatusCode.Cancelled => (RunStatus.Aborted, "Прогон отменён на стороне агента"),
         StatusCode.DeadlineExceeded => (RunStatus.Aborted, "Истёк срок вызова агента"),
-        StatusCode.ResourceExhausted => (RunStatus.Failed, "агент занят"),
+        // Отступление от контракта: он предлагает повторить позже, а мы сразу ставим failed.
+        // В v1 координатор один и запускает прогоны по одному, поэтому агент занят только
+        // чужим прогоном - например, оставшимся после перезапуска координатора.
+        // #48: повтор с паузой вместо немедленного failed (issue «Координатор: повтор при RESOURCE_EXHAUSTED»)
+        StatusCode.ResourceExhausted => (RunStatus.Failed, "Агент занят"),
         StatusCode.InvalidArgument => (RunStatus.Failed, $"Агент отклонил сценарий: {detail}"),
         StatusCode.Unavailable => (RunStatus.Failed, $"Агент недоступен: {detail}"),
         StatusCode.Internal => (RunStatus.Failed, $"Внутренняя ошибка агента: {detail}"),
@@ -136,12 +144,12 @@ public sealed class RunExecutor(RunStore store, IAgentRunner agent, ILogger<RunE
                 logger.LogWarning(e, "Не удалось вызвать Stop у агента для прогона {RunId}", runId);
             }
 
-            // После успешного Stop агент сам завершит поток с CANCELLED, и все
-            // отправленные полные ступени будут прочитаны. Иначе отменяем вызов сами
-            if (!await active.WaitAsync(wasRunning ? StopGrace : NotRunningGrace, cancellationToken))
+            if (!await active.WaitAsync(FinishGrace, cancellationToken))
             {
+                if (wasRunning)
+                    logger.LogWarning("Агент остановил прогон {RunId}, но поток Run не завершился за {Grace}", runId, FinishGrace);
                 active.Cancel();
-                await active.WaitAsync(StopGrace, cancellationToken);
+                await active.WaitAsync(CancelGrace, cancellationToken);
             }
         }
 

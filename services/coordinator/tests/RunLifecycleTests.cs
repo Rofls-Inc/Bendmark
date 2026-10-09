@@ -73,7 +73,7 @@ public class RunLifecycleTests
         factory.Agent.Fail(StatusCode.ResourceExhausted);
 
         var run = await Api.WaitForStatusAsync(client, id, "failed");
-        Assert.Equal("агент занят", run.GetProperty("error").GetString());
+        Assert.Equal("Агент занят", run.GetProperty("error").GetString());
         Assert.Equal(0, Api.StepCount(run));
     }
 

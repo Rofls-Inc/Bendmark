@@ -38,7 +38,8 @@ public sealed class AgentOptions
     }
 
     // Stop отвечает после прекращения нагрузки: агент ждёт незавершённые запросы
-    public TimeSpan StopCallTimeout => TimeSpan.FromSeconds(RequestTimeoutSeconds + 10);
+    // не дольше их таймаута, плюс 5 с запаса на сеть
+    public TimeSpan StopCallTimeout => TimeSpan.FromSeconds(RequestTimeoutSeconds + 5);
 }
 
 public sealed class GrpcAgentRunner : IAgentRunner
