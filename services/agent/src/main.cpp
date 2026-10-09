@@ -13,7 +13,6 @@ void print_usage(const char* prog) {
         << "Options:\n"
         << "  --concurrency N   max parallel requests (default 16)\n"
         << "  --timeout MS      per-request timeout in ms (default 5000)\n"
-        << "  --output FILE     write latencies to file (ms, one per line)\n"
         << "  --json FILE       write aggregated stats as JSON\n";
 }
 
@@ -29,18 +28,17 @@ int main(int argc, char** argv) {
     try {
         cfg.url = argv[1];
         cfg.rate_per_sec = std::stod(argv[2]);
-        cfg.duration = std::chrono::seconds(std::stoll(argv[3]));
+        cfg.duration_seconds = std::stod(argv[3]);
     } catch (const std::exception& e) {
         std::cerr << "Invalid arguments: " << e.what() << "\n";
         return 1;
     }
 
-    if (cfg.rate_per_sec <= 0 || cfg.duration.count() <= 0) {
+    if (cfg.rate_per_sec <= 0 || cfg.duration_seconds <= 0) {
         std::cerr << "rate and duration must be > 0\n";
         return 1;
     }
 
-    std::string output_file;
     std::string json_file;
     try {
         for (int i = 4; i < argc; ++i) {
@@ -49,8 +47,6 @@ int main(int argc, char** argv) {
                 cfg.concurrency = std::stoi(argv[++i]);
             } else if (a == "--timeout" && i + 1 < argc) {
                 cfg.timeout_ms = std::stol(argv[++i]);
-            } else if (a == "--output" && i + 1 < argc) {
-                output_file = argv[++i];
             } else if (a == "--json" && i + 1 < argc) {
                 json_file = argv[++i];
             } else {
@@ -84,42 +80,8 @@ int main(int argc, char** argv) {
 
     long success_count = 0;
     long fail_count = 0;
-
-    if (!output_file.empty() || json_file.empty()) {
-        std::ostream* out = &std::cout;
-        std::ofstream file;
-        if (!output_file.empty()) {
-            file.open(output_file);
-            if (!file) {
-                std::cerr << "Cannot open " << output_file << "\n";
-                return 1;
-            }
-            out = &file;
-        }
-
-        for (const auto& r : result.requests) {
-            if (r.success) {
-                ++success_count;
-                *out << std::fixed << std::setprecision(3)
-                     << (r.latency_us / 1000.0) << "\n";
-            } else {
-                ++fail_count;
-                std::cerr << "request failed: " << r.error
-                          << " (after " << std::fixed << std::setprecision(1)
-                          << (r.latency_us / 1000.0) << " ms)\n";
-            }
-        }
-    } else {
-        for (const auto& r : result.requests) {
-            if (r.success) {
-                ++success_count;
-            } else {
-                ++fail_count;
-                std::cerr << "request failed: " << r.error
-                          << " (after " << std::fixed << std::setprecision(1)
-                          << (r.latency_us / 1000.0) << " ms)\n";
-            }
-        }
+    for (const auto& r : result.requests) {
+        if (r.success) ++success_count; else ++fail_count;
     }
 
     if (result.skipped > 0) {
@@ -133,12 +95,24 @@ int main(int argc, char** argv) {
     }
 
     if (!json_file.empty()) {
-        StepStats stats = compute_step_stats(cfg, result);
+        StepStats stats = compute_step_stats(1, cfg, result);
         if (!write_result_json(json_file, stats)) {
             std::cerr << "Cannot write " << json_file << "\n";
             return 1;
         }
         std::cerr << "JSON written to " << json_file << "\n";
+    } else {
+        std::ostream* out = &std::cout;
+        for (const auto& r : result.requests) {
+            if (r.success) {
+                *out << std::fixed << std::setprecision(3)
+                     << (r.latency_us / 1000.0) << "\n";
+            } else {
+                std::cerr << "request failed: " << r.error
+                          << " (after " << std::fixed << std::setprecision(1)
+                          << (r.latency_us / 1000.0) << " ms)\n";
+            }
+        }
     }
 
     if (success_count == 0) {

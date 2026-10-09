@@ -2,9 +2,9 @@
 
 #include <curl/curl.h>
 #include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <cstdio>
-#include <deque>
 #include <fstream>
 #include <mutex>
 #include <thread>
@@ -38,9 +38,10 @@ RequestResult do_request(const std::string& url, long timeout_ms,
     CURLcode rc = curl_easy_perform(curl);
     auto end = std::chrono::steady_clock::now();
 
-    // Задержка считается от запланированного момента, а не от фактической отправки:
-    r.latency_us = std::chrono::duration_cast<std::chrono::microseconds>(end - scheduled_at).count();
-    r.send_lag_us = std::chrono::duration_cast<std::chrono::microseconds>(start - scheduled_at).count();
+    r.latency_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        end - scheduled_at).count();
+    r.send_lag_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        start - scheduled_at).count();
 
     if (rc == CURLE_OK) {
         long code = 0;
@@ -63,14 +64,21 @@ RequestResult do_request(const std::string& url, long timeout_ms,
 double percentile_ms(const std::vector<long>& sorted_us, int p_permille) {
     if (sorted_us.empty()) return 0.0;
     size_t n = sorted_us.size();
+
     size_t rank = (static_cast<size_t>(p_permille) * n + 999) / 1000;
     if (rank == 0) rank = 1;
-    return sorted_us[rank - 1] / 1000.0;
+    size_t idx = rank - 1;
+
+    return sorted_us[idx] / 1000.0;
 }
 
-void write_double(std::ostream& os, double v) {
+void write_double(std::ostream& os, double v, int precision = 2) {
+    char fmt[16];
+    std::snprintf(fmt, sizeof(fmt), "%%.%df", precision);
+
     char buf[64];
-    std::snprintf(buf, sizeof(buf), "%.2f", v);
+    std::snprintf(buf, sizeof(buf), fmt, v);
+
     std::string s(buf);
     if (s.find('.') != std::string::npos) {
         while (!s.empty() && s.back() == '0') s.pop_back();
@@ -90,8 +98,9 @@ RunResult LoadGenerator::run() {
     std::mutex results_mtx;
     std::mutex work_mtx;
     std::condition_variable work_cv;
-    std::vector<std::thread> workers;
+
     std::deque<std::chrono::steady_clock::time_point> ready;
+    std::vector<std::thread> workers;
     int outstanding = 0;
     bool stopping = false;
 
@@ -108,6 +117,7 @@ RunResult LoadGenerator::run() {
                 }
 
                 RequestResult r = do_request(url, timeout, scheduled_at);
+
                 {
                     std::lock_guard<std::mutex> lk(results_mtx);
                     out.requests.push_back(std::move(r));
@@ -122,7 +132,9 @@ RunResult LoadGenerator::run() {
 
     const auto interval = std::chrono::duration<double>(1.0 / cfg_.rate_per_sec);
     const auto start_time = std::chrono::steady_clock::now();
-    const auto end_time = start_time + cfg_.duration;
+    const auto duration = std::chrono::duration<double>(cfg_.duration_seconds);
+    const auto end_time = start_time +
+        std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration);
     auto next_tick = start_time;
 
     while (next_tick < end_time) {
@@ -149,17 +161,17 @@ RunResult LoadGenerator::run() {
         stopping = true;
     }
     work_cv.notify_all();
-    for (auto& worker : workers) worker.join();
+    for (auto& w : workers) w.join();
 
     curl_global_cleanup();
-
     return out;
 }
 
-StepStats compute_step_stats(const LoadConfig& cfg, const RunResult& run) {
+StepStats compute_step_stats(int index, const LoadConfig& cfg, const RunResult& run) {
     StepStats s;
+    s.index = index;
     s.target_rps = cfg.rate_per_sec;
-    s.duration_seconds = static_cast<int>(cfg.duration.count());
+    s.duration_seconds = cfg.duration_seconds;
     s.skipped_count = run.skipped;
 
     std::vector<long> latencies;
@@ -174,8 +186,9 @@ StepStats compute_step_stats(const LoadConfig& cfg, const RunResult& run) {
 
     s.request_count = static_cast<long long>(latencies.size());
 
-    double secs = static_cast<double>(s.duration_seconds);
-    s.throughput_rps = secs > 0 ? static_cast<double>(s.request_count) / secs : 0.0;
+    s.throughput_rps = cfg.duration_seconds > 0
+        ? static_cast<double>(s.request_count) / cfg.duration_seconds
+        : 0.0;
 
     if (s.request_count > 0) {
         s.error_rate_percent =
@@ -197,18 +210,19 @@ bool write_result_json(const std::string& path, const StepStats& s) {
     if (!out) return false;
 
     out << "{\n";
-    out << "  \"target_rps\": ";        write_double(out, s.target_rps);    out << ",\n";
-    out << "  \"duration_seconds\": " << s.duration_seconds << ",\n";
+    out << "  \"index\": " << s.index << ",\n";
+    out << "  \"target_rps\": ";        write_double(out, s.target_rps);      out << ",\n";
+    out << "  \"duration_seconds\": ";  write_double(out, s.duration_seconds); out << ",\n";
     out << "  \"request_count\": "    << s.request_count    << ",\n";
-    out << "  \"throughput_rps\": ";  write_double(out, s.throughput_rps); out << ",\n";
+    out << "  \"throughput_rps\": ";  write_double(out, s.throughput_rps);   out << ",\n";
     out << "  \"latency_ms\": { "
-        << "\"p50\": "; write_double(out, s.latency_p50_ms);
-    out << ", \"p90\": "; write_double(out, s.latency_p90_ms);
-    out << ", \"p99\": "; write_double(out, s.latency_p99_ms);
+        << "\"p50\": "; write_double(out, s.latency_p50_ms, 3);
+    out << ", \"p90\": "; write_double(out, s.latency_p90_ms, 3);
+    out << ", \"p99\": "; write_double(out, s.latency_p99_ms, 3);
     out << " },\n";
     out << "  \"errors\": { "
         << "\"count\": " << s.error_count
-        << ", \"rate_percent\": "; write_double(out, s.error_rate_percent);
+        << ", \"rate_percent\": "; write_double(out, s.error_rate_percent, 1);
     out << " },\n";
     out << "  \"skipped_count\": " << s.skipped_count << "\n";
     out << "}\n";
