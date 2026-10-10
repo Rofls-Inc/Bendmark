@@ -12,10 +12,12 @@ endif()
 find_package(CURL REQUIRED)
 find_package(Threads REQUIRED)
 
-add_executable(load_agent
-    src/main.cpp
+add_library(load_agent_core
     src/load_agent.cpp
+    src/sender_http.cpp
 )
+target_include_directories(load_agent_core PUBLIC include)
+target_link_libraries(load_agent_core PUBLIC CURL::libcurl Threads::Threads)
 
-target_include_directories(load_agent PRIVATE include)
-target_link_libraries(load_agent PRIVATE CURL::libcurl Threads::Threads)
+add_executable(load_agent src/main.cpp)
+target_link_libraries(load_agent PRIVATE load_agent_core)
