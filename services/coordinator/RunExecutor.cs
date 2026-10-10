@@ -68,15 +68,24 @@ public sealed class RunExecutor(RunStore store, IAgentRunner agent, ILogger<RunE
     {
         try
         {
+            var plannedStepCount = run.Scenario.Steps?.Count ?? 0;
             var expectedIndex = 1u;
             await foreach (var step in agent.RunAsync(run.Id, run.Scenario, callToken))
             {
                 if (step.Index != expectedIndex)
                     throw new AgentProtocolException(
                         $"Агент прислал ступень {step.Index}, ожидалась {expectedIndex}");
+                if (expectedIndex > plannedStepCount)
+                    throw new AgentProtocolException(
+                        $"Агент прислал лишнюю ступень {step.Index}, в сценарии {plannedStepCount} ступеней");
                 store.AddStep(run.Id, step);
                 expectedIndex++;
             }
+
+            var receivedStepCount = expectedIndex - 1;
+            if (receivedStepCount != plannedStepCount)
+                throw new AgentProtocolException(
+                    $"Агент завершил поток: получено {receivedStepCount} из {plannedStepCount} ступеней");
             return (RunStatus.Completed, null);
         }
         catch (RpcException e)

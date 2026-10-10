@@ -27,6 +27,7 @@ public class RunLifecycleTests
         var withSteps = await Api.WaitForAsync(client, id, run => Api.StepCount(run) == 2);
         Assert.Equal("running", Api.Status(withSteps));
 
+        SendRampSteps(factory.Agent, skip: 2);
         factory.Agent.Finish();
         var done = await Api.WaitForStatusAsync(client, id, "completed");
         Assert.Equal(JsonValueKind.String, done.GetProperty("finished_at").ValueKind);
@@ -34,12 +35,56 @@ public class RunLifecycleTests
         Assert.Equal("abstock-home-ramp", done.GetProperty("scenario").GetProperty("name").GetString());
 
         var steps = done.GetProperty("steps");
-        Assert.Equal(2, steps.GetArrayLength());
+        Assert.Equal(7, steps.GetArrayLength());
         Assert.Equal(1, steps[0].GetProperty("index").GetInt32());
         Assert.Equal(2, steps[1].GetProperty("index").GetInt32());
         Assert.Equal(6750UL, steps[1].GetProperty("request_count").GetUInt64());
         Assert.Equal(27UL, steps[1].GetProperty("errors").GetProperty("count").GetUInt64());
         Assert.Equal(0.4, steps[1].GetProperty("errors").GetProperty("rate_percent").GetDouble());
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(6)]
+    public async Task Successful_stream_with_missing_steps_fails_run(int receivedStepCount)
+    {
+        await using var factory = new CoordinatorFactory();
+        var client = factory.CreateClient();
+        var id = await Api.CreateRunAsync(client);
+        await factory.Agent.WaitStartedAsync();
+
+        SendRampSteps(factory.Agent, take: receivedStepCount);
+        factory.Agent.Finish();
+
+        var run = await Api.WaitForAsync(client, id,
+            run => Api.Status(run) is "completed" or "failed" or "aborted");
+        Assert.Equal("failed", Api.Status(run));
+        Assert.Equal(receivedStepCount, Api.StepCount(run));
+        Assert.Contains($"получено {receivedStepCount} из 7", run.GetProperty("error").GetString());
+        Assert.Equal(JsonValueKind.String, run.GetProperty("finished_at").ValueKind);
+
+        using var result = await client.GetAsync($"/runs/{id}/result");
+        Assert.Equal(HttpStatusCode.Conflict, result.StatusCode);
+    }
+
+    [Fact]
+    public async Task Extra_step_fails_run_without_saving_it()
+    {
+        await using var factory = new CoordinatorFactory();
+        var client = factory.CreateClient();
+        var id = await Api.CreateRunAsync(client);
+        await factory.Agent.WaitStartedAsync();
+
+        SendRampSteps(factory.Agent);
+        factory.Agent.SendStep(TestData.Step(8, 450));
+        factory.Agent.Finish();
+
+        var run = await Api.WaitForAsync(client, id,
+            run => Api.Status(run) is "completed" or "failed" or "aborted");
+        Assert.Equal("failed", Api.Status(run));
+        Assert.Equal(7, Api.StepCount(run));
+        Assert.Contains("лишнюю ступень 8", run.GetProperty("error").GetString());
     }
 
     [Theory]
@@ -148,6 +193,7 @@ public class RunLifecycleTests
             Assert.Equal("aborted", Api.Status(await Api.ReadJsonAsync(response)));
         }
 
+        SendRampSteps(factory.Agent);
         factory.Agent.Finish();
         await Api.WaitForStatusAsync(client, first, "completed");
 
@@ -170,6 +216,7 @@ public class RunLifecycleTests
         var client = factory.CreateClient();
         var id = await Api.CreateRunAsync(client);
         await factory.Agent.WaitStartedAsync();
+        SendRampSteps(factory.Agent);
         factory.Agent.Finish();
         await Api.WaitForStatusAsync(client, id, "completed");
 
@@ -236,5 +283,15 @@ public class RunLifecycleTests
         Assert.Equal("abstock-home-ramp", result.GetProperty("scenario_name").GetString());
         Assert.Equal("aborted", result.GetProperty("status").GetString());
         Assert.Equal(2, result.GetProperty("steps").GetArrayLength());
+    }
+
+    private static void SendRampSteps(FakeAgentRunner agent, int skip = 0, int? take = null)
+    {
+        using var document = JsonDocument.Parse(TestData.Read("results", "limit-found.json"));
+        var steps = document.RootElement.GetProperty("steps").EnumerateArray().Skip(skip);
+        if (take is { } count)
+            steps = steps.Take(count);
+        foreach (var step in steps)
+            agent.SendStep(TestData.StepFromJson(step));
     }
 }
