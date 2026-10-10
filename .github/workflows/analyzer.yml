@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - "services/analyzer/**"
+      - "testdata/results/**"
       - ".github/workflows/analyzer.yml"
   push:
     branches: [main, dev]
     paths:
       - "services/analyzer/**"
+      - "testdata/results/**"
       - ".github/workflows/analyzer.yml"
   workflow_dispatch:
 

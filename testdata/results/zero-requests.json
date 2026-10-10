@@ -1,0 +1,22 @@
+{
+  "scenario_name": "zero-requests",
+  "status": "completed",
+  "steps": [
+    {
+      "index": 1,
+      "target_rps": 100,
+      "duration_seconds": 10,
+      "request_count": 0,
+      "throughput_rps": 0.0,
+      "latency_ms": {
+        "p50": 0,
+        "p90": 0,
+        "p99": 0
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      }
+    }
+  ]
+}

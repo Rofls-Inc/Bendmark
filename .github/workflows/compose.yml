@@ -6,6 +6,9 @@ on:
       - "services/agent/**"
       - "services/analyzer/**"
       - "services/coordinator/**"
+      - "proto/**"
+      - "testdata/results/**"
+      - "examples/scenario.yaml"
       - "docker-compose.yml"
       - ".github/workflows/compose.yml"
   push:
@@ -14,6 +17,9 @@ on:
       - "services/agent/**"
       - "services/analyzer/**"
       - "services/coordinator/**"
+      - "proto/**"
+      - "testdata/results/**"
+      - "examples/scenario.yaml"
       - "docker-compose.yml"
       - ".github/workflows/compose.yml"
   workflow_dispatch:
@@ -36,6 +42,9 @@ jobs:
         # --wait ждёт, пока healthcheck'и abstock и coordinator станут healthy
         run: docker compose up -d --wait --wait-timeout 180
 
+      - name: Coordinator is healthy
+        run: curl --fail --silent --show-error http://localhost:5080/health
+
       - name: Coordinator creates a run
         run: |
           code=$(curl -s -o response.json -w '%{http_code}' -X POST http://localhost:5080/runs \
@@ -47,7 +56,7 @@ jobs:
         run: docker compose run --rm agent http://abstock:8080/ 10 2 --output /dev/null
 
       - name: Analyzer reads a result
-        run: docker compose run --rm analyzer examples/result.json
+        run: docker compose run --rm analyzer testdata/results/limit-found.json
 
       - name: Logs
         if: failure()

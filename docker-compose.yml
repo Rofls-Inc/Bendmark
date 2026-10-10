@@ -28,7 +28,9 @@ services:
       start_period: 60s
 
   coordinator:
-    build: services/coordinator
+    build:
+      context: .
+      dockerfile: services/coordinator/Dockerfile
     ports:
       - "127.0.0.1:5080:5080"
     networks: [bendmark]

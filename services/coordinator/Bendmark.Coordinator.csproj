@@ -4,10 +4,22 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="YamlDotNet" Version="18.1.0" />
+    <!-- Версии согласованы с CI контрактов: Protobuf 29.3, gRPC 1.70.0 -->
+    <PackageReference Include="Google.Protobuf" Version="3.29.3" />
+    <PackageReference Include="Grpc.Net.Client" Version="2.70.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.70.0" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Клиенты из общих контрактов. Классы internal: тестовый проект генерирует из тех же
+         .proto серверные заготовки, и одноимённые публичные типы конфликтовали бы.
+         Сборка в Docker (#36) должна идти из корня репозитория, чтобы proto/ был в контексте -->
+    <Protobuf Include="../../proto/bendmark/v1/*.proto" ProtoRoot="../../proto" GrpcServices="Client" Access="Internal" />
   </ItemGroup>
 
 </Project>

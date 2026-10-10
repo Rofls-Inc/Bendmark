@@ -1,0 +1,38 @@
+{
+  "scenario_name": "errors-below-threshold",
+  "status": "completed",
+  "steps": [
+    {
+      "index": 1,
+      "target_rps": 100,
+      "duration_seconds": 10,
+      "request_count": 1000,
+      "throughput_rps": 100,
+      "latency_ms": {
+        "p50": 10,
+        "p90": 18,
+        "p99": 20
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      }
+    },
+    {
+      "index": 2,
+      "target_rps": 200,
+      "duration_seconds": 10,
+      "request_count": 2000,
+      "throughput_rps": 200,
+      "latency_ms": {
+        "p50": 10,
+        "p90": 18,
+        "p99": 25
+      },
+      "errors": {
+        "count": 10,
+        "rate_percent": 0.5
+      }
+    }
+  ]
+}

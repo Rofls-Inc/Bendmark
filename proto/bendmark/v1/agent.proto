@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package bendmark.v1;
+
+import "bendmark/v1/common.proto";
+
+option csharp_namespace = "Bendmark.Contracts.V1";
+
+service AgentService {
+  // Execute the scenario once. Emit one response for each completed step.
+  // Finish with OK only after every step has been reported.
+  // An interrupted step is omitted; prior completed steps remain valid.
+  // Reject a second concurrent Run with RESOURCE_EXHAUSTED; do not queue it.
+  // Stop or client cancellation must stop the load; see proto/README.md for statuses.
+  rpc Run(RunRequest) returns (stream RunResponse);
+
+  // Stop the identified run and wait until its load has stopped.
+  // The stopped Run stream finishes with CANCELLED; Stop itself returns OK.
+  rpc Stop(StopRequest) returns (StopResponse);
+}
+
+message RunRequest {
+  // Coordinator's run UUID, also used by Stop. Non-empty.
+  string run_id = 1;
+  Scenario scenario = 2;
+}
+
+message RunResponse {
+  // Correlation ID from RunRequest.
+  string run_id = 1;
+  // Exactly one fully completed step; index is its position in the submitted scenario.
+  StepResult step_result = 2;
+}
+
+message StopRequest {
+  string run_id = 1;
+}
+
+message StopResponse {
+  // True if this call found and stopped an active run with the given ID.
+  // False if it was already finished/stopped or the ID is not active on this agent.
+  // This makes retrying Stop safe and handles a race with normal completion.
+  bool was_running = 1;
+}

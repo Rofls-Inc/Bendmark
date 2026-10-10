@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Grpc.AspNetCore.Server" Version="2.70.0" />
+    <PackageReference Include="Grpc.Tools" Version="2.70.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.8" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" PrivateAssets="all" />
+    <ProjectReference Include="../Bendmark.Coordinator.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Серверные заготовки для in-process агента в GrpcAgentRunnerTests -->
+    <Protobuf Include="../../../proto/bendmark/v1/*.proto" ProtoRoot="../../../proto" GrpcServices="Server" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="../../../testdata/scenarios/**/*"
+             Link="testdata/scenarios/%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../testdata/results/limit-found.json"
+             Link="testdata/results/limit-found.json"
+             CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

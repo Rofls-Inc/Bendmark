@@ -1,0 +1,118 @@
+{
+  "scenario_name": "abstock-home-ramp",
+  "status": "completed",
+  "steps": [
+    {
+      "index": 1,
+      "target_rps": 100,
+      "duration_seconds": 45,
+      "request_count": 4500,
+      "throughput_rps": 100.0,
+      "latency_ms": {
+        "p50": 12,
+        "p90": 18,
+        "p99": 22
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      }
+    },
+    {
+      "index": 2,
+      "target_rps": 150,
+      "duration_seconds": 45,
+      "request_count": 6750,
+      "throughput_rps": 150.0,
+      "latency_ms": {
+        "p50": 13,
+        "p90": 20,
+        "p99": 26
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      }
+    },
+    {
+      "index": 3,
+      "target_rps": 200,
+      "duration_seconds": 45,
+      "request_count": 9000,
+      "throughput_rps": 200.0,
+      "latency_ms": {
+        "p50": 16,
+        "p90": 27,
+        "p99": 34
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      }
+    },
+    {
+      "index": 4,
+      "target_rps": 250,
+      "duration_seconds": 45,
+      "request_count": 11205,
+      "throughput_rps": 249.0,
+      "latency_ms": {
+        "p50": 18,
+        "p90": 38,
+        "p99": 52
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      }
+    },
+    {
+      "index": 5,
+      "target_rps": 300,
+      "duration_seconds": 45,
+      "request_count": 13365,
+      "throughput_rps": 297.0,
+      "latency_ms": {
+        "p50": 25,
+        "p90": 60,
+        "p99": 86
+      },
+      "errors": {
+        "count": 13,
+        "rate_percent": 0.1
+      }
+    },
+    {
+      "index": 6,
+      "target_rps": 350,
+      "duration_seconds": 45,
+      "request_count": 15210,
+      "throughput_rps": 338.0,
+      "latency_ms": {
+        "p50": 38,
+        "p90": 90,
+        "p99": 182
+      },
+      "errors": {
+        "count": 46,
+        "rate_percent": 0.3
+      }
+    },
+    {
+      "index": 7,
+      "target_rps": 400,
+      "duration_seconds": 45,
+      "request_count": 15345,
+      "throughput_rps": 341.0,
+      "latency_ms": {
+        "p50": 45,
+        "p90": 210,
+        "p99": 812
+      },
+      "errors": {
+        "count": 368,
+        "rate_percent": 2.4
+      }
+    }
+  ]
+}

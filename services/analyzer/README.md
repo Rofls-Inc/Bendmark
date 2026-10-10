@@ -14,8 +14,19 @@
 
 Предел - целевая нагрузка последней ступени перед первым отказом. Если отказа не было, то предел не найден и известна только нижняя оценка - нагрузка последней ступени.
 
-Входные данные - `result.json` (пример - `examples/result.json`).
+CLI учитывает `status`: для `aborted` явно сообщает, что прогон прерван и
+анализируются только завершённые ступени. Если сохранённых ступеней нет,
+сообщает, что предел определить нельзя. Для ступени с `request_count=0`
+анализ завершается с ошибкой нехватки измерений, не объявляя предел сервиса.
+
+Входные данные - `result.json` (пример - `testdata/results/limit-found.json`).
 Если в нём нет нужного поля или вместо числа стоит строка, `null` и т.п., анализатор завершается с кодом 1 и сообщением, в какой ступени и каком поле ошибка.
+
+Если `skipped_count` больше нуля, анализатор отклоняет измерения: агент не
+подал всю запланированную нагрузку, поэтому нельзя объявлять предел сервиса.
+Старые файлы без этого поля поддерживаются; новые результаты содержат
+счётчик явно. Отображение protobuf в JSON описано в
+[`proto/README.md`](../../proto/README.md).
 
 
 ## Запуск
@@ -23,14 +34,14 @@
 Нужен Python 3.10+. Команды выполняются из `services/analyzer`.
 
 ```bash
-python -m analyzer ../../examples/result.json
-python -m analyzer ../../examples/result.json --p99-ms 300 --min-gain 0.5
+python -m analyzer ../../testdata/results/limit-found.json
+python -m analyzer ../../testdata/results/limit-found.json --p99-ms 300 --min-gain 0.5
 ```
 
 Через Docker из корня репозитория (путь к файлу относительно корня):
 
 ```bash
-docker compose run --rm analyzer examples/result.json --p99-ms 300
+docker compose run --rm analyzer testdata/results/limit-found.json --p99-ms 300
 ```
 
 ## Тесты
@@ -41,3 +52,9 @@ python -m venv .venv
 pip install -r requirements-dev.txt
 pytest
 ```
+
+Тесты читают общие результаты из [`testdata/results/`](../../testdata/results/).
+Описание случаев и ожидаемых пределов — в
+[`testdata/README.md`](../../testdata/README.md). Для проверки ошибок отдельных
+полей тесты изменяют загруженную ступень в памяти. Хелпер `steps()` используется
+для небольших проверок значений ровно на границе порогов и за ней.
