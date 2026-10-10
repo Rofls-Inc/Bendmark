@@ -39,7 +39,7 @@ jobs:
         run: docker compose --profile tools build
 
       - name: Start stack
-        # --wait ждёт, пока healthcheck'и abstock и coordinator станут healthy
+        # --wait ждёт, пока healthcheck'и abstock, analyzer и coordinator станут healthy
         run: docker compose up -d --wait --wait-timeout 180
 
       - name: Coordinator is healthy
@@ -55,8 +55,30 @@ jobs:
       - name: Agent reaches abstock
         run: docker compose run --rm agent http://abstock:8080/ 10 2 --output /dev/null
 
-      - name: Analyzer reads a result
-        run: docker compose run --rm analyzer testdata/results/limit-found.json
+      - name: Analyzer service answers FindLimit
+        # Внутри контейнера: сгенерированный код лежит в /app/generated
+        run: |
+          docker compose exec -T analyzer python - <<'EOF'
+          import sys
+          sys.path.insert(0, "/app/generated")
+          import grpc
+          from bendmark.v1 import analyzer_pb2, analyzer_pb2_grpc, common_pb2
+
+          def step(index, rps, p99):
+              return common_pb2.StepResult(
+                  index=index, target_rps=rps, duration_seconds=10, request_count=int(rps * 10),
+                  throughput_rps=rps, latency_ms=common_pb2.LatencyPercentiles(p99=p99),
+                  errors=common_pb2.RequestErrors())
+
+          stub = analyzer_pb2_grpc.AnalyzerServiceStub(grpc.insecure_channel("127.0.0.1:50052"))
+          request = analyzer_pb2.FindLimitRequest(steps=[step(1, 100, 20), step(2, 200, 900)])
+          limit = stub.FindLimit(request, timeout=5).limit
+          print(limit)
+          assert limit.found and limit.limit_rps == 100 and limit.failed_step_index == 2
+          EOF
+
+      - name: Analyzer CLI reads a result
+        run: docker compose run --rm analyzer-cli testdata/results/limit-found.json
 
       - name: Logs
         if: failure()

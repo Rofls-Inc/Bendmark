@@ -5,6 +5,15 @@ description = "Анализатор Bendmark: находит предел сер
 requires-python = ">=3.10"
 dependencies = []
 
+[project.optional-dependencies]
+# Только для gRPC-сервиса (python -m analyzer.server); CLI работает без них.
+# Версии совпадают с CI контрактов: gRPC 1.70.0, Protobuf 29.3
+server = ["grpcio==1.70.0", "protobuf==5.29.3"]
+
+[tool.setuptools]
+# Пакет один; generated/ (код из proto) и gen_proto.py в дистрибутив не входят
+packages = ["analyzer"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

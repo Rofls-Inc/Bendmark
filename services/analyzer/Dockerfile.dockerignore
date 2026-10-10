@@ -1,0 +1,12 @@
+# Docker берёт этот файл вместо .dockerignore в корне, когда собирает
+# services/analyzer/Dockerfile. В образ нужны только proto/ и сам анализатор
+*
+!proto/
+!services/analyzer/
+**/__pycache__/
+**/.pytest_cache/
+**/*.egg-info/
+services/analyzer/.venv/
+services/analyzer/venv/
+services/analyzer/generated/
+services/analyzer/tests/
