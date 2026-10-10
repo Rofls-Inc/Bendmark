@@ -18,7 +18,7 @@ public readonly record struct StopResult(StopOutcome Outcome, Run? Run);
 // Исполняет прогоны на агенте по одному и останавливает их по запросу.
 // Конечный статус начатого прогона фиксирует только ExecuteAsync - так переход
 // в конечный статус происходит один раз, а полученные ступени не теряются
-public sealed class RunExecutor(RunStore store, IAgentRunner agent, ILogger<RunExecutor> logger)
+public sealed class RunExecutor(RunStore store, IAgentRunner agent, IAnalyzer analyzer, ILogger<RunExecutor> logger)
 {
     // Время ответа POST /runs/{id}/stop не больше StopCallTimeout + FinishGrace + CancelGrace,
     // то есть Agent:RequestTimeoutSeconds + 10 с (15 с по умолчанию); см. README.
@@ -42,6 +42,7 @@ public sealed class RunExecutor(RunStore store, IAgentRunner agent, ILogger<RunE
         lock (_gate)
             _active = active;
 
+        AnalysisPlan? plan = null;
         try
         {
             var run = store.TryStart(runId);
@@ -52,15 +53,49 @@ public sealed class RunExecutor(RunStore store, IAgentRunner agent, ILogger<RunE
             }
 
             var (status, error) = await RunOnAgentAsync(run, callCancellation.Token, stoppingToken);
-            store.TryFinish(runId, status, error);
+            plan = AnalysisPlan.For(status, store.Get(runId)!.Steps);
+            store.TryFinish(runId, status, error, plan?.Initial());
             logger.LogInformation("Прогон {RunId} завершён со статусом {Status}", runId, status);
         }
         finally
         {
             lock (_gate)
                 _active = null;
+            // Остановка ждёт только конца прогона, а не анализа
             active.MarkDone();
         }
+
+        if (plan is { Steps.Count: > 0 })
+            await AnalyzeAsync(runId, plan, stoppingToken);
+    }
+
+    // Статус прогона анализ не меняет: ошибка анализатора попадает только в analysis
+    private async Task AnalyzeAsync(Guid runId, AnalysisPlan plan, CancellationToken stoppingToken)
+    {
+        Analysis analysis;
+        try
+        {
+            var limit = await analyzer.FindLimitAsync(plan.Steps, stoppingToken);
+            analysis = plan.FromLimit(limit);
+        }
+        catch (RpcException e)
+        {
+            analysis = plan.FromRpcError(e.StatusCode, e.Status.Detail);
+            if (analysis.Status == AnalysisStatus.Error)
+                logger.LogWarning(e, "Анализ прогона {RunId} не выполнен: {Code}", runId, e.StatusCode);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            analysis = plan.Error("координатор остановлен");
+        }
+        catch (Exception e)
+        {
+            logger.LogError(e, "Ошибка анализа прогона {RunId}", runId);
+            analysis = plan.Error(e.Message);
+        }
+
+        store.SetAnalysis(runId, analysis);
+        logger.LogInformation("Анализ прогона {RunId}: {Status}", runId, analysis.Status);
     }
 
     private async Task<(RunStatus Status, string? Error)> RunOnAgentAsync(

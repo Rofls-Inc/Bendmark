@@ -16,13 +16,36 @@ using Xunit;
 
 namespace Bendmark.Coordinator.Tests;
 
-// Координатор с фейковым агентом вместо gRPC
+// Координатор с фейковыми агентом и анализатором вместо gRPC
 public sealed class CoordinatorFactory : WebApplicationFactory<Program>
 {
     public FakeAgentRunner Agent { get; } = new();
 
+    public FakeAnalyzer Analyzer { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder) =>
-        builder.ConfigureTestServices(services => services.AddSingleton<IAgentRunner>(Agent));
+        builder.ConfigureTestServices(services =>
+        {
+            services.AddSingleton<IAgentRunner>(Agent);
+            services.AddSingleton<IAnalyzer>(Analyzer);
+        });
+}
+
+// Анализатор, ответ которого задаёт тест. По умолчанию: отказа нет, нижняя оценка — последняя ступень
+public sealed class FakeAnalyzer : IAnalyzer
+{
+    private readonly ConcurrentQueue<IReadOnlyList<StepResultDto>> _calls = new();
+
+    public IReadOnlyCollection<IReadOnlyList<StepResultDto>> Calls => _calls;
+
+    public Func<IReadOnlyList<StepResultDto>, Task<LimitResult>> Respond { get; set; } =
+        steps => Task.FromResult(new LimitResult(false, steps[^1].TargetRps, null, []));
+
+    public Task<LimitResult> FindLimitAsync(IReadOnlyList<StepResultDto> steps, CancellationToken cancellationToken)
+    {
+        _calls.Enqueue(steps);
+        return Respond(steps);
+    }
 }
 
 // Агент, которым управляет тест: ступени, завершение и ошибки отправляются вручную.
