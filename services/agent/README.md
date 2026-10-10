@@ -12,6 +12,17 @@ cmake --build . -j
 
 Нужны: CMake ≥ 3.16, C++17, libcurl с заголовками (`libcurl4-openssl-dev` на Debian/Ubuntu).
 
+## Docker
+
+Из корня репозитория, вместе с ABStock в общей сети:
+
+```bash
+docker compose up -d --build abstock
+docker compose run --rm agent http://abstock:8080/ 50 10
+```
+
+Образ собирается в два этапа: в первом есть компилятор, CMake и заголовки libcurl, во второй попадают только бинарник и `libcurl`.
+
 ## Запуск
 
 ```

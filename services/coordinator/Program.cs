@@ -22,6 +22,7 @@ builder.Services.AddOptions<AgentOptions>()
     .ValidateOnStart();
 
 builder.Services.AddSingleton<RunStore>();
+builder.Services.AddHealthChecks();
 builder.Services.AddSingleton<RunQueue>();
 builder.Services.AddSingleton<RunExecutor>();
 builder.Services.AddHostedService<RunWorker>();
@@ -33,6 +34,9 @@ builder.Services.AddSingleton<IAgentRunner>(services => new GrpcAgentRunner(
     services.GetRequiredService<IOptions<AgentOptions>>()));
 
 var app = builder.Build();
+
+// Проверка живости для healthcheck в docker-compose.yml
+app.MapHealthChecks("/health");
 
 app.MapPost("/runs", async (HttpRequest request, RunStore store, RunQueue queue) =>
 {
