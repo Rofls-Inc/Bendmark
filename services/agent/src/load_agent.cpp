@@ -10,16 +10,10 @@
 #include <fstream>
 #include <iostream>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 #include <vector>
-
-namespace {
-
-struct RunResult {
-    std::vector<RequestResult> requests;
-    long long skipped = 0;
-};
 
 double percentile_ms(const std::vector<long>& sorted_us, int p_permille) {
     if (sorted_us.empty()) return 0.0;
@@ -31,6 +25,46 @@ double percentile_ms(const std::vector<long>& sorted_us, int p_permille) {
 
     return sorted_us[idx] / 1000.0;
 }
+
+StepResult compute_step_result(int index, const StepConfig& step, const RunResult& run) {
+    StepResult s;
+    s.index = index;
+    s.target_rps = step.target_rps;
+    s.duration_seconds = step.duration_seconds;
+    s.skipped_count = run.skipped;
+
+    std::vector<long> latencies;
+    latencies.reserve(run.requests.size());
+
+    for (const auto& r : run.requests) {
+        latencies.push_back(r.latency_us);
+        if (!r.success) {
+            ++s.error_count;
+        }
+    }
+
+    s.request_count = static_cast<long long>(latencies.size());
+
+    s.throughput_rps = step.duration_seconds > 0
+        ? static_cast<double>(s.request_count) / step.duration_seconds
+        : 0.0;
+
+    if (s.request_count > 0) {
+        s.error_rate_percent =
+            100.0 * static_cast<double>(s.error_count) / static_cast<double>(s.request_count);
+    }
+
+    if (!latencies.empty()) {
+        std::sort(latencies.begin(), latencies.end());
+        s.latency_p50_ms = percentile_ms(latencies, 500);
+        s.latency_p90_ms = percentile_ms(latencies, 900);
+        s.latency_p99_ms = percentile_ms(latencies, 990);
+    }
+
+    return s;
+}
+
+namespace {
 
 void write_double(std::ostream& os, double v, int precision = 2) {
     char fmt[16];
@@ -150,8 +184,6 @@ RunResult run_one_step(const std::string& url,
             + " of " + std::to_string(concurrency) + "): " + e.what());
     }
 
-    // start_time берём ПОСЛЕ создания пула: время создания потоков не должно
-    // съедать длительность ступени. Не переставлять выше цикла с emplace_back.
     const auto interval = std::chrono::duration<double>(1.0 / step.target_rps);
     const auto start_time = std::chrono::steady_clock::now();
     const auto duration = std::chrono::duration<double>(step.duration_seconds);
@@ -188,44 +220,6 @@ RunResult run_one_step(const std::string& url,
     for (auto& w : workers) w.join();
 
     return out;
-}
-
-StepResult compute_step_result(int index, const StepConfig& step, const RunResult& run) {
-    StepResult s;
-    s.index = index;
-    s.target_rps = step.target_rps;
-    s.duration_seconds = step.duration_seconds;
-    s.skipped_count = run.skipped;
-
-    std::vector<long> latencies;
-    latencies.reserve(run.requests.size());
-
-    for (const auto& r : run.requests) {
-        latencies.push_back(r.latency_us);
-        if (!r.success) {
-            ++s.error_count;
-        }
-    }
-
-    s.request_count = static_cast<long long>(latencies.size());
-
-    s.throughput_rps = step.duration_seconds > 0
-        ? static_cast<double>(s.request_count) / step.duration_seconds
-        : 0.0;
-
-    if (s.request_count > 0) {
-        s.error_rate_percent =
-            100.0 * static_cast<double>(s.error_count) / static_cast<double>(s.request_count);
-    }
-
-    if (!latencies.empty()) {
-        std::sort(latencies.begin(), latencies.end());
-        s.latency_p50_ms = percentile_ms(latencies, 500);
-        s.latency_p90_ms = percentile_ms(latencies, 900);
-        s.latency_p99_ms = percentile_ms(latencies, 990);
-    }
-
-    return s;
 }
 
 } // namespace

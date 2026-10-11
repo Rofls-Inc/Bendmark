@@ -21,3 +21,6 @@ target_link_libraries(load_agent_core PUBLIC CURL::libcurl Threads::Threads)
 
 add_executable(load_agent src/main.cpp)
 target_link_libraries(load_agent PRIVATE load_agent_core)
+
+enable_testing()
+add_subdirectory(tests)
