@@ -160,7 +160,7 @@ stateDiagram-v2
     [*] --> created : POST /runs, сценарий прошёл проверку
     created --> running : координатор взял прогон из очереди и вызвал Run
     created --> aborted : остановили в очереди
-    running --> completed : Run завершился OK
+    running --> completed : Run завершился OK, получены все ступени
     running --> failed : ошибка агента или нарушение контракта
     running --> aborted : остановили или истёк срок вызова Run
     completed --> [*]
@@ -170,8 +170,8 @@ stateDiagram-v2
 
 | Исход вызова `Run` | Статус прогона |
 | --- | --- |
-| `OK` | `completed` |
-| `INVALID_ARGUMENT`, `RESOURCE_EXHAUSTED` («Агент занят»), `INTERNAL`, `UNAVAILABLE`; ступени не по порядку или `NaN` в метриках | `failed`, полученные ступени сохраняются как диагностика |
+| `OK`, получены все ступени сценария | `completed` |
+| `INVALID_ARGUMENT`, `RESOURCE_EXHAUSTED` («Агент занят»), `INTERNAL`, `UNAVAILABLE`; `OK`, но ступеней меньше, чем в сценарии; лишняя ступень, ступени не по порядку или `NaN` в метриках | `failed`, полученные ступени сохраняются как диагностика |
 | `CANCELLED` после `POST /runs/{id}/stop` | `aborted`, только полные ступени |
 | `DEADLINE_EXCEEDED` | `aborted` |
 
