@@ -41,7 +41,8 @@ export function PerformanceChart({ steps, limitRps }: Props) {
           ticks={rps.ticks}
           stroke="var(--muted)"
           tickLine={false}
-          width={48}
+          width={56}
+          label={{ value: 'запр/с', angle: -90, position: 'insideLeft', fill: 'var(--muted)' }}
         />
         <YAxis
           yAxisId="p99"
@@ -51,7 +52,8 @@ export function PerformanceChart({ steps, limitRps }: Props) {
           ticks={p99.ticks}
           stroke="var(--muted)"
           tickLine={false}
-          width={48}
+          width={56}
+          label={{ value: 'p99, мс (лог)', angle: 90, position: 'insideRight', fill: 'var(--muted)' }}
         />
         <Tooltip
           contentStyle={{ background: 'var(--panel)', border: '1px solid var(--border)' }}

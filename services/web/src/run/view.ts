@@ -1,4 +1,4 @@
-import type { Limit, Run, StepResult } from '../api/types'
+import { FINAL_STATUSES, type Analysis, type Run, type StepResult } from '../api/types'
 
 // Порог p99 по умолчанию, как у анализатора (--p99-ms)
 export const P99_THRESHOLD_MS = 500
@@ -52,18 +52,32 @@ function niceStep(raw: number): number {
   return nice * magnitude
 }
 
-export type StepVerdict = 'ok' | 'limit' | 'failed' | 'after'
+// Опрос идёт, пока прогон не завершён и пока анализатор не ответил:
+// координатор сначала ставит конечный статус с analysis.status = pending, потом записывает предел
+export function needsPolling(run: Run): boolean {
+  return !FINAL_STATUSES.includes(run.status) || run.analysis?.status === 'pending'
+}
 
-// Как подписать ступень в отчёте: «норма», «предел» (последняя без отказа), «отказ», после отказа
-export function stepVerdict(step: StepResult, limit: Limit | null | undefined): StepVerdict | null {
-  if (!limit)
+export type StepVerdict = 'ok' | 'limit' | 'failed' | 'after' | 'not-analyzed'
+
+// Есть ли у анализа подписи ступеней: только когда анализатор ответил
+export function hasVerdicts(analysis: Analysis | null): analysis is Analysis {
+  return analysis?.status === 'found' || analysis?.status === 'not_found'
+}
+
+// Как подписать ступень в отчёте: «норма», «предел» (последняя без отказа), «отказ»,
+// после отказа, «не анализ.» — ступени, которые не ушли анализатору (после пропусков или остановки)
+export function stepVerdict(step: StepResult, analysis: Analysis | null): StepVerdict | null {
+  if (!hasVerdicts(analysis))
     return null
-  const failed = limit.failed_step_index ?? null
+  const failed = analysis.failed_step_index
   if (failed !== null && step.index > failed)
     return 'after'
   if (failed !== null && step.index === failed)
     return 'failed'
-  if (limit.found && failed !== null && step.index === failed - 1)
+  if (step.index > analysis.analyzed_steps)
+    return 'not-analyzed'
+  if (analysis.status === 'found' && failed !== null && step.index === failed - 1)
     return 'limit'
   return 'ok'
 }
@@ -71,30 +85,40 @@ export function stepVerdict(step: StepResult, limit: Limit | null | undefined): 
 export interface Headline {
   // Что показать крупно: предел, нижняя оценка или ничего
   value: number | null
-  kind: 'limit' | 'lower-bound' | 'below-first' | 'none'
+  kind: 'limit' | 'lower-bound' | 'below-first' | 'pending' | 'none'
   caption: string
 }
 
 export function headline(run: Run): Headline {
-  const limit = run.limit
-  if (!limit)
-    return { value: null, kind: 'none', caption: 'Предел ещё не посчитан' }
-  if (!limit.found)
+  const analysis = run.analysis
+  if (!analysis)
     return {
-      value: limit.limit_rps ?? null,
-      kind: 'lower-bound',
-      caption: 'Предел не найден: сервис выдержал все ступени, держит не меньше',
+      value: null,
+      kind: 'none',
+      caption: run.status === 'failed'
+        ? 'Прогон завершился сбоем, предел не ищется'
+        : run.steps.length === 0 ? 'Нет ни одной полной ступени' : 'Предела нет',
     }
-  if (limit.limit_rps == null)
-    return { value: null, kind: 'below-first', caption: 'Предел ниже первой ступени' }
-  return { value: limit.limit_rps, kind: 'limit', caption: 'Предел сервиса' }
+  switch (analysis.status) {
+    case 'pending':
+      return { value: null, kind: 'pending', caption: analysis.message }
+    case 'found':
+      return analysis.limit_rps === null
+        ? { value: null, kind: 'below-first', caption: analysis.message }
+        : { value: analysis.limit_rps, kind: 'limit', caption: analysis.message }
+    case 'not_found':
+      return { value: analysis.limit_rps, kind: 'lower-bound', caption: analysis.message }
+    case 'undetermined':
+    case 'error':
+      return { value: null, kind: 'none', caption: analysis.message }
+  }
 }
 
 // Номер ступени, которая идёт сейчас: следующая после последней пришедшей
 export function currentStep(run: Run): number | null {
   if (run.status !== 'running')
     return null
-  const done = run.steps?.length ?? 0
+  const done = run.steps.length
   return Math.min(done + 1, run.scenario.steps.length)
 }
 

@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - "services/web/**"
+      - "testdata/results/limit-found.json"
       - ".github/workflows/web.yml"
   push:
     branches: [main, dev]
     paths:
       - "services/web/**"
+      - "testdata/results/limit-found.json"
       - ".github/workflows/web.yml"
   workflow_dispatch:
 
@@ -33,6 +35,10 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: services/web/package-lock.json
+
+      - name: Demo result matches testdata
+        # Демо-прогон собран на копии: образ собирается из services/web и не видит testdata
+        run: cmp src/demo/result.json ../../testdata/results/limit-found.json
 
       - name: Install
         run: npm ci

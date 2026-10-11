@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
 import { ApiError, getRun } from '../api/client'
-import { FINAL_STATUSES, type Run } from '../api/types'
+import type { Run } from '../api/types'
 import { DEMO_RUN_ID, demoRun } from '../demo/demoRun'
+import { needsPolling } from './view'
 
 export const POLL_INTERVAL_MS = 2000
 
 export type RunState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; run: Run }
+  // offline — последний опрос не удался, на экране прошлый ответ
+  | { kind: 'ready'; run: Run; offline: boolean }
 
-// Опрашивает GET /runs/{id}, пока прогон не дойдёт до конечного статуса
+// Опрашивает GET /runs/{id}, пока прогон не завершится и анализатор не ответит
 export function useRun(id: string): RunState {
   const [state, setState] = useState<{ id: string; value: RunState }>({ id, value: { kind: 'loading' } })
 
@@ -24,8 +26,8 @@ export function useRun(id: string): RunState {
     const poll = async () => {
       try {
         const run = await getRun(id, controller.signal)
-        setState({ id, value: { kind: 'ready', run } })
-        if (!FINAL_STATUSES.includes(run.status))
+        setState({ id, value: { kind: 'ready', run, offline: false } })
+        if (needsPolling(run))
           timer = setTimeout(poll, POLL_INTERVAL_MS)
       } catch (e) {
         if (controller.signal.aborted)
@@ -38,7 +40,7 @@ export function useRun(id: string): RunState {
         }
         setState((prev) => prev.id === id && prev.value.kind === 'ready'
           // Прогон уже показан: временный сбой связи не стирает экран, пробуем ещё раз
-          ? prev
+          ? { id, value: { ...prev.value, offline: true } }
           : { id, value: { kind: 'error', message } })
         timer = setTimeout(poll, POLL_INTERVAL_MS)
       }
@@ -52,7 +54,7 @@ export function useRun(id: string): RunState {
   }, [id])
 
   if (id === DEMO_RUN_ID)
-    return { kind: 'ready', run: demoRun }
+    return { kind: 'ready', run: demoRun, offline: false }
   // Пока не пришёл ответ для нового id, не показываем прогон от прошлого
   return state.id === id ? state.value : { kind: 'loading' }
 }

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { ApiError, ValidationError, toError } from './client'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { ApiError, UNAVAILABLE_MESSAGE, ValidationError, request, toError } from './client'
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/problem+json' } })
@@ -32,5 +32,24 @@ describe('toError', () => {
     const error = await toError(new Response('<html>Bad Gateway</html>', { status: 502 }))
     expect(error).toBeInstanceOf(ApiError)
     expect(error.message).toBe('Координатор ответил 502')
+  })
+})
+
+describe('request', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('сетевая ошибка превращается в «Координатор недоступен»', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+    const error = await request('/api/runs').catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).message).toBe(UNAVAILABLE_MESSAGE)
+  })
+
+  it('отмену запроса не подменяет', async () => {
+    const abort = new DOMException('aborted', 'AbortError')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abort))
+    await expect(request('/api/runs/1')).rejects.toBe(abort)
   })
 })

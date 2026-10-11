@@ -50,12 +50,15 @@ export function buildSteps(form: ScenarioForm): BuildResult {
   // Считаем через индекс, а не прибавлением, чтобы не копить погрешность дробного шага
   const count = Math.floor((to - from) / step + 1e-9) + 1
   if (count > MAX_STEPS)
-    return { ok: false, errors: { stepRps: `Получается ${count} ступеней, максимум ${MAX_STEPS}` } }
+    return { ok: false, errors: { stepRps: `Больше ${MAX_STEPS} ступеней, увеличьте шаг` } }
 
   const steps = Array.from({ length: count }, (_, i) => ({
     target_rps: round(from + i * step),
     duration_seconds: duration,
   }))
+  // Слишком мелкий шаг после округления даёт повторы, а координатор требует строгого роста
+  if (steps.some((s, i) => i > 0 && s.target_rps <= steps[i - 1].target_rps))
+    return { ok: false, errors: { stepRps: 'Шаг слишком мелкий: после округления нагрузка не растёт' } }
   return { ok: true, steps }
 }
 
@@ -111,6 +114,7 @@ function parsePositive(raw: string, field: FormField, errors: FormErrors): numbe
   return value
 }
 
+// До трёх знаков: 0.1 + 0.2 не должно уйти координатору как 0.30000000000000004
 function round(value: number): number {
   return Math.round(value * 1000) / 1000
 }

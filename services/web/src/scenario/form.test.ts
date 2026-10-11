@@ -49,6 +49,23 @@ describe('buildSteps', () => {
     expect(result.ok).toBe(false)
     expect(!result.ok && result.errors.stepRps).toContain(String(MAX_STEPS))
   })
+
+  it('при очень мелком шаге не пишет огромное число ступеней', () => {
+    const result = buildSteps({ ...defaultForm, fromRps: '1', toRps: '1000', stepRps: '1e-300' })
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.errors.stepRps).toBe(`Больше ${MAX_STEPS} ступеней, увеличьте шаг`)
+  })
+
+  it('отклоняет шаг, после округления которого нагрузка не растёт', () => {
+    const result = buildSteps({ ...defaultForm, fromRps: '1', toRps: '1.002', stepRps: '0.0004' })
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.errors.stepRps).toContain('не растёт')
+  })
+
+  it('дробный шаг без повторов проходит', () => {
+    const result = buildSteps({ ...defaultForm, fromRps: '0.1', toRps: '0.3', stepRps: '0.1' })
+    expect(result.ok && result.steps.map((s) => s.target_rps)).toEqual([0.1, 0.2, 0.3])
+  })
 })
 
 describe('toScenario', () => {

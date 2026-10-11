@@ -1,5 +1,5 @@
 # Весь стенд одной командой: docker compose up --build
-# Координатор: http://localhost:5080, ABStock: http://localhost:5062,
+# Интерфейс: http://localhost:5173, координатор: http://localhost:5080, ABStock: http://localhost:5062,
 # анализатор (gRPC): localhost:50052
 
 name: bendmark
@@ -50,6 +50,16 @@ services:
       timeout: 3s
       retries: 3
       start_period: 20s
+
+  # Веб-интерфейс: nginx раздаёт статику и проксирует /api/ координатору
+  web:
+    build: services/web
+    ports:
+      - "127.0.0.1:5173:80"
+    networks: [bendmark]
+    depends_on:
+      coordinator:
+        condition: service_healthy
 
   # Анализатор — gRPC-сервис FindLimit (#34); его вызывает координатор после прогона
   analyzer:

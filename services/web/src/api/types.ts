@@ -28,13 +28,24 @@ export interface StepResult {
   throughput_rps: number
   latency_ms: { p50: number; p90: number; p99: number }
   errors: { count: number; rate_percent: number }
+  // Тики, которые агент не отправил: не было свободного рабочего потока
+  skipped_count: number
 }
 
-export interface Limit {
-  found: boolean
-  limit_rps?: number | null
-  failed_step_index?: number | null
+// pending — прогон завершён, анализатор ещё не ответил
+export type AnalysisStatus = 'pending' | 'found' | 'not_found' | 'undetermined' | 'error'
+
+// Поиск предела, как в Analysis.cs координатора
+export interface Analysis {
+  status: AnalysisStatus
+  // found: последняя ступень без отказа (null, если отказ на первой); not_found: нижняя оценка
+  limit_rps: number | null
+  failed_step_index: number | null
   reasons: string[]
+  // Сколько первых ступеней ушло анализатору
+  analyzed_steps: number
+  // Итог для человека от координатора
+  message: string
 }
 
 export interface Run {
@@ -42,8 +53,11 @@ export interface Run {
   scenario: Scenario
   status: RunStatus
   created_at: string
-  // Результаты ступеней придут из агента (#33), предел из анализатора (#34).
-  // Пока координатор их не отдаёт, поэтому поля необязательные.
-  steps?: StepResult[]
-  limit?: Limit | null
+  started_at: string | null
+  finished_at: string | null
+  // Причина для failed и части aborted
+  error: string | null
+  steps: StepResult[]
+  // null, пока прогон не завершён, и у failed или без ступеней
+  analysis: Analysis | null
 }
