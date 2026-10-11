@@ -1,0 +1,13 @@
+{
+  "name": "excessive-rps",
+  "target": {
+    "url": "http://abstock:8080/",
+    "method": "GET"
+  },
+  "steps": [
+    {
+      "target_rps": 1000000000000,
+      "duration_seconds": 10
+    }
+  ]
+}

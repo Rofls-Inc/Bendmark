@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Extensions.Options;
 using YamlDotNet.Core;
+using YamlDotNet.RepresentationModel;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
@@ -41,6 +42,10 @@ public static class ScenarioReader
 
         using (document)
         {
+            var unknown = UnknownFields.Find(document.RootElement);
+            if (unknown.Count > 0)
+                return (null, Results.ValidationProblem(unknown));
+
             try
             {
                 return (document.Deserialize<Scenario>(options), null);
@@ -57,12 +62,22 @@ public static class ScenarioReader
         using var reader = new StreamReader(request.Body);
         var text = await reader.ReadToEndAsync();
 
+        // Неизвестные поля без IgnoreUnmatchedProperties тоже дают YamlException,
+        // но UnknownFields сообщает о них раньше и с путём к полю
         var deserializer = new DeserializerBuilder()
             .WithNamingConvention(UnderscoredNamingConvention.Instance)
-            .IgnoreUnmatchedProperties()
             .Build();
         try
         {
+            var stream = new YamlStream();
+            stream.Load(new StringReader(text));
+            if (stream.Documents.Count > 0)
+            {
+                var unknown = UnknownFields.Find(stream.Documents[0].RootNode);
+                if (unknown.Count > 0)
+                    return (null, Results.ValidationProblem(unknown));
+            }
+
             return (deserializer.Deserialize<Scenario>(text), null);
         }
         catch (YamlException e)

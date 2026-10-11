@@ -1,0 +1,9 @@
+name: unknown-field
+target:
+  url: http://abstock:8080/
+  method: GET
+steps:
+  - target_rps: 100
+    duration_seconds: 45
+  - target_rsp: 150
+    duration_seconds: 45

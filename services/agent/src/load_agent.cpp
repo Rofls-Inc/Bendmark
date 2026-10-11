@@ -1,10 +1,15 @@
 #include "load_agent.hpp"
 
 #include <curl/curl.h>
+#include <algorithm>
 #include <condition_variable>
+#include <cstdio>
+#include <deque>
+#include <fstream>
 #include <mutex>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -12,7 +17,8 @@ size_t discard_body(char*, size_t size, size_t nmemb, void*) {
     return size * nmemb;
 }
 
-RequestResult do_request(const std::string& url, long timeout_ms) {
+RequestResult do_request(const std::string& url, long timeout_ms,
+                         std::chrono::steady_clock::time_point scheduled_at) {
     RequestResult r;
 
     CURL* curl = curl_easy_init();
@@ -32,16 +38,45 @@ RequestResult do_request(const std::string& url, long timeout_ms) {
     CURLcode rc = curl_easy_perform(curl);
     auto end = std::chrono::steady_clock::now();
 
-    r.latency_us = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    // Задержка считается от запланированного момента, а не от фактической отправки:
+    r.latency_us = std::chrono::duration_cast<std::chrono::microseconds>(end - scheduled_at).count();
+    r.send_lag_us = std::chrono::duration_cast<std::chrono::microseconds>(start - scheduled_at).count();
 
     if (rc == CURLE_OK) {
-        r.success = true;
+        long code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+        r.http_code = code;
+
+        if (code >= 200 && code < 400) {
+            r.success = true;
+        } else {
+            r.error = "HTTP " + std::to_string(code);
+        }
     } else {
         r.error = curl_easy_strerror(rc);
     }
 
     curl_easy_cleanup(curl);
     return r;
+}
+
+double percentile_ms(const std::vector<long>& sorted_us, int p_permille) {
+    if (sorted_us.empty()) return 0.0;
+    size_t n = sorted_us.size();
+    size_t rank = (static_cast<size_t>(p_permille) * n + 999) / 1000;
+    if (rank == 0) rank = 1;
+    return sorted_us[rank - 1] / 1000.0;
+}
+
+void write_double(std::ostream& os, double v) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.2f", v);
+    std::string s(buf);
+    if (s.find('.') != std::string::npos) {
+        while (!s.empty() && s.back() == '0') s.pop_back();
+        if (!s.empty() && s.back() == '.') s.pop_back();
+    }
+    os << s;
 }
 
 } // namespace
@@ -56,21 +91,23 @@ RunResult LoadGenerator::run() {
     std::mutex work_mtx;
     std::condition_variable work_cv;
     std::vector<std::thread> workers;
+    std::deque<std::chrono::steady_clock::time_point> ready;
     int outstanding = 0;
-    int pending = 0;
     bool stopping = false;
 
     for (int i = 0; i < cfg_.concurrency; ++i) {
         workers.emplace_back([&, url = cfg_.url, timeout = cfg_.timeout_ms] {
             while (true) {
+                std::chrono::steady_clock::time_point scheduled_at;
                 {
                     std::unique_lock<std::mutex> lk(work_mtx);
-                    work_cv.wait(lk, [&] { return pending > 0 || stopping; });
-                    if (pending == 0) return;
-                    --pending;
+                    work_cv.wait(lk, [&] { return !ready.empty() || stopping; });
+                    if (ready.empty()) return;
+                    scheduled_at = ready.front();
+                    ready.pop_front();
                 }
 
-                RequestResult r = do_request(url, timeout);
+                RequestResult r = do_request(url, timeout, scheduled_at);
                 {
                     std::lock_guard<std::mutex> lk(results_mtx);
                     out.requests.push_back(std::move(r));
@@ -90,7 +127,6 @@ RunResult LoadGenerator::run() {
 
     while (next_tick < end_time) {
         std::this_thread::sleep_until(next_tick);
-        next_tick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval);
 
         bool queued = false;
         {
@@ -99,11 +135,13 @@ RunResult LoadGenerator::run() {
                 ++out.skipped;
             } else {
                 ++outstanding;
-                ++pending;
+                ready.push_back(next_tick);
                 queued = true;
             }
         }
         if (queued) work_cv.notify_one();
+
+        next_tick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval);
     }
 
     {
@@ -116,4 +154,64 @@ RunResult LoadGenerator::run() {
     curl_global_cleanup();
 
     return out;
+}
+
+StepStats compute_step_stats(const LoadConfig& cfg, const RunResult& run) {
+    StepStats s;
+    s.target_rps = cfg.rate_per_sec;
+    s.duration_seconds = static_cast<int>(cfg.duration.count());
+    s.skipped_count = run.skipped;
+
+    std::vector<long> latencies;
+    latencies.reserve(run.requests.size());
+
+    for (const auto& r : run.requests) {
+        latencies.push_back(r.latency_us);
+        if (!r.success) {
+            ++s.error_count;
+        }
+    }
+
+    s.request_count = static_cast<long long>(latencies.size());
+
+    double secs = static_cast<double>(s.duration_seconds);
+    s.throughput_rps = secs > 0 ? static_cast<double>(s.request_count) / secs : 0.0;
+
+    if (s.request_count > 0) {
+        s.error_rate_percent =
+            100.0 * static_cast<double>(s.error_count) / static_cast<double>(s.request_count);
+    }
+
+    if (!latencies.empty()) {
+        std::sort(latencies.begin(), latencies.end());
+        s.latency_p50_ms = percentile_ms(latencies, 500);
+        s.latency_p90_ms = percentile_ms(latencies, 900);
+        s.latency_p99_ms = percentile_ms(latencies, 990);
+    }
+
+    return s;
+}
+
+bool write_result_json(const std::string& path, const StepStats& s) {
+    std::ofstream out(path);
+    if (!out) return false;
+
+    out << "{\n";
+    out << "  \"target_rps\": ";        write_double(out, s.target_rps);    out << ",\n";
+    out << "  \"duration_seconds\": " << s.duration_seconds << ",\n";
+    out << "  \"request_count\": "    << s.request_count    << ",\n";
+    out << "  \"throughput_rps\": ";  write_double(out, s.throughput_rps); out << ",\n";
+    out << "  \"latency_ms\": { "
+        << "\"p50\": "; write_double(out, s.latency_p50_ms);
+    out << ", \"p90\": "; write_double(out, s.latency_p90_ms);
+    out << ", \"p99\": "; write_double(out, s.latency_p99_ms);
+    out << " },\n";
+    out << "  \"errors\": { "
+        << "\"count\": " << s.error_count
+        << ", \"rate_percent\": "; write_double(out, s.error_rate_percent);
+    out << " },\n";
+    out << "  \"skipped_count\": " << s.skipped_count << "\n";
+    out << "}\n";
+
+    return static_cast<bool>(out);
 }
