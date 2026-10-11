@@ -101,40 +101,57 @@ RunResult run_one_step(const std::string& url,
 
     const int concurrency = compute_workers(step, opt);
 
-    for (int i = 0; i < concurrency; ++i) {
-        workers.emplace_back([&, url, timeout = opt.timeout_ms, sender] {
-            while (true) {
-                std::chrono::steady_clock::time_point scheduled_at;
-                {
-                    std::unique_lock<std::mutex> lk(work_mtx);
-                    work_cv.wait(lk, [&] { return !ready.empty() || stopping; });
-                    if (ready.empty()) return;
-                    scheduled_at = ready.front();
-                    ready.pop_front();
-                }
+    try {
+        workers.reserve(static_cast<size_t>(concurrency));
+        for (int i = 0; i < concurrency; ++i) {
+            workers.emplace_back([&, url, timeout = opt.timeout_ms, sender] {
+                while (true) {
+                    std::chrono::steady_clock::time_point scheduled_at;
+                    {
+                        std::unique_lock<std::mutex> lk(work_mtx);
+                        work_cv.wait(lk, [&] { return !ready.empty() || stopping; });
+                        if (ready.empty()) return;
+                        scheduled_at = ready.front();
+                        ready.pop_front();
+                    }
 
-                SendOutcome outcome = sender->send(url, timeout);
-                auto end = std::chrono::steady_clock::now();
+                    SendOutcome outcome = sender->send(url, timeout);
+                    auto end = std::chrono::steady_clock::now();
 
-                RequestResult r;
-                r.success = outcome.success;
-                r.http_code = outcome.http_code;
-                r.error = std::move(outcome.error);
-                r.latency_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                    end - scheduled_at).count();
+                    RequestResult r;
+                    r.success = outcome.success;
+                    r.http_code = outcome.http_code;
+                    r.error = std::move(outcome.error);
+                    r.latency_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                        end - scheduled_at).count();
 
-                {
-                    std::lock_guard<std::mutex> lk(results_mtx);
-                    out.requests.push_back(std::move(r));
+                    {
+                        std::lock_guard<std::mutex> lk(results_mtx);
+                        out.requests.push_back(std::move(r));
+                    }
+                    {
+                        std::lock_guard<std::mutex> lk(work_mtx);
+                        --outstanding;
+                    }
                 }
-                {
-                    std::lock_guard<std::mutex> lk(work_mtx);
-                    --outstanding;
-                }
-            }
-        });
+            });
+        }
+    } catch (const std::system_error& e) {
+        {
+            std::lock_guard<std::mutex> lk(work_mtx);
+            stopping = true;
+        }
+        work_cv.notify_all();
+        for (auto& w : workers) {
+            if (w.joinable()) w.join();
+        }
+        throw std::runtime_error(
+            "failed to create worker thread (" + std::to_string(workers.size() + 1)
+            + " of " + std::to_string(concurrency) + "): " + e.what());
     }
 
+    // start_time берём ПОСЛЕ создания пула: время создания потоков не должно
+    // съедать длительность ступени. Не переставлять выше цикла с emplace_back.
     const auto interval = std::chrono::duration<double>(1.0 / step.target_rps);
     const auto start_time = std::chrono::steady_clock::now();
     const auto duration = std::chrono::duration<double>(step.duration_seconds);

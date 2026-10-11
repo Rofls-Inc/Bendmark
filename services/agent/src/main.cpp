@@ -153,18 +153,26 @@ int main(int argc, char** argv) {
 
     if (sc.timeout_ms <= 0 || sc.max_concurrency <= 0) {
         std::cerr << "timeout and max-concurrency must be > 0\n";
-        return 1;
+        return 2;
     }
     if (sc.concurrency_override < 0) {
         std::cerr << "concurrency override must be >= 0\n";
-        return 1;
+        return 2;
     }
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
     auto sender = make_http_sender();
 
     std::atomic<bool> stop{false};
-    std::vector<StepResult> steps = run_scenario(sc, sender, stop, nullptr);
+    std::vector<StepResult> steps;
+
+    try {
+        steps = run_scenario(sc, sender, stop, nullptr);
+    } catch (const std::exception& e) {
+        curl_global_cleanup();
+        std::cerr << "Scenario failed: " << e.what() << "\n";
+        return 4;
+    }
 
     curl_global_cleanup();
 
@@ -176,13 +184,13 @@ int main(int argc, char** argv) {
     if (!json_file.empty()) {
         if (!write_result_json(json_file, result)) {
             std::cerr << "Cannot write " << json_file << "\n";
-            return 1;
+            return 3;
         }
         std::cerr << "JSON written to " << json_file << "\n";
     } else {
         if (!write_result_json("-", result)) {
             std::cerr << "Cannot write JSON to stdout\n";
-            return 1;
+            return 3;
         }
     }
 
