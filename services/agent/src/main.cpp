@@ -3,6 +3,7 @@
 
 #include <curl/curl.h>
 #include <atomic>
+#include <cmath>
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
@@ -25,6 +26,22 @@ void print_usage(const char* prog) {
         << "  --json FILE            write result.json (default stdout)\n";
 }
 
+double parse_positive(const std::string& s, const std::string& ctx) {
+    size_t pos = 0;
+    double v = std::stod(s, &pos);
+
+    if (pos != s.size()) {
+        throw std::runtime_error("trailing characters in " + ctx + ": " + s);
+    }
+    if (!std::isfinite(v)) {
+        throw std::runtime_error("expected finite number > 0 in " + ctx + ": " + s);
+    }
+    if (v <= 0) {
+        throw std::runtime_error("expected number > 0 in " + ctx + ": " + s);
+    }
+    return v;
+}
+
 std::vector<StepConfig> parse_steps(const std::string& s) {
     std::vector<StepConfig> steps;
     std::stringstream ss(s);
@@ -39,12 +56,10 @@ std::vector<StepConfig> parse_steps(const std::string& s) {
         }
 
         StepConfig step;
-        step.target_rps = std::stod(pair.substr(0, colon));
-        step.duration_seconds = std::stod(pair.substr(colon + 1));
-
-        if (step.target_rps <= 0 || step.duration_seconds <= 0) {
-            throw std::runtime_error("step values must be > 0: " + pair);
-        }
+        step.target_rps = parse_positive(pair.substr(0, colon),
+                                         "step rate in " + pair);
+        step.duration_seconds = parse_positive(pair.substr(colon + 1),
+                                               "step duration in " + pair);
 
         steps.push_back(step);
     }
@@ -80,9 +95,9 @@ int main(int argc, char** argv) {
         int i = 2;
 
         if (i < argc && argv[i][0] != '-') {
-            pos_rate = std::stod(argv[i++]);
+            pos_rate = parse_positive(argv[i++], "rate");
             if (i < argc && argv[i][0] != '-') {
-                pos_duration = std::stod(argv[i++]);
+                pos_duration = parse_positive(argv[i++], "duration");
             }
             positional_done = true;
         }
@@ -121,7 +136,7 @@ int main(int argc, char** argv) {
     try {
         if (!steps_arg.empty()) {
             sc.steps = parse_steps(steps_arg);
-        } else if (positional_done && pos_rate > 0 && pos_duration > 0) {
+        } else if (positional_done && pos_duration > 0) {
             StepConfig single;
             single.target_rps = pos_rate;
             single.duration_seconds = pos_duration;
