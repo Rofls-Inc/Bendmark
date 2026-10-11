@@ -15,22 +15,45 @@ class Step:
     error_count: int
 
 
+@dataclass(frozen=True)
+class RunResult:
+    status: str
+    steps: list[Step]
+
+
 def parse_steps(data: dict) -> list[Step]:
     """Превращает result.json в список ступеней"""
     if not isinstance(data, dict) or not isinstance(data.get("steps"), list):
         raise ValueError("в result.json нет списка steps")
     return [_parse_step(raw, position) for position, raw in enumerate(data["steps"], 1)]
 
-def load_result(path: str | Path) -> list[Step]:
-    """Чтение result.json с диска"""
+def load_run_result(path: str | Path) -> RunResult:
+    """Читает статус прогона и измерения из result.json."""
     text = Path(path).read_text(encoding="utf-8")
-    return parse_steps(json.loads(text))
+    data = json.loads(text)
+    steps = parse_steps(data)
+    status = data.get("status")
+    if status not in ("completed", "aborted"):
+        raise ValueError("в result.json поле status должно быть completed или aborted")
+    return RunResult(status=status, steps=steps)
+
+
+def load_result(path: str | Path) -> list[Step]:
+    """Читает измерения для отдельных проверок алгоритма."""
+    return load_run_result(path).steps
 
 
 def _parse_step(raw: object, position: int) -> Step:
     where = f"ступень {position}"
     if not isinstance(raw, dict):
         raise ValueError(f"{where}: ожидался объект")
+    # Legacy result files omit this field; new agents must export it explicitly.
+    if "skipped_count" in raw:
+        skipped = _number(raw, where, "skipped_count", integer=True)
+        if skipped > 0:
+            raise ValueError(
+                f"{where}: агент пропустил {skipped} запросов; эти измерения не определяют предел сервиса"
+            )
     step = Step(
         index=_number(raw, where, "index", integer=True),
         target_rps=_number(raw, where, "target_rps"),

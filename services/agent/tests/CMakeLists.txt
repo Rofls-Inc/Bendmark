@@ -1,0 +1,15 @@
+add_executable(load_agent_tests_scheduler test_scheduler.cpp)
+target_link_libraries(load_agent_tests_scheduler PRIVATE load_agent_core)
+add_test(NAME scheduler COMMAND load_agent_tests_scheduler)
+
+add_executable(load_agent_tests_scenario test_scenario.cpp)
+target_link_libraries(load_agent_tests_scenario PRIVATE load_agent_core)
+add_test(NAME scenario COMMAND load_agent_tests_scenario)
+
+add_executable(load_agent_tests_percentiles test_percentiles.cpp)
+target_link_libraries(load_agent_tests_percentiles PRIVATE load_agent_core)
+add_test(NAME percentiles COMMAND load_agent_tests_percentiles)
+
+add_executable(load_agent_tests_workers test_workers.cpp)
+target_link_libraries(load_agent_tests_workers PRIVATE load_agent_core)
+add_test(NAME workers COMMAND load_agent_tests_workers)

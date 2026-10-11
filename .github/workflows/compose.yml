@@ -1,0 +1,95 @@
+name: compose
+
+on:
+  pull_request:
+    paths:
+      - "services/agent/**"
+      - "services/analyzer/**"
+      - "services/coordinator/**"
+      - "proto/**"
+      - "testdata/results/**"
+      - "examples/scenario.yaml"
+      - "docker-compose.yml"
+      - ".github/workflows/compose.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "services/agent/**"
+      - "services/analyzer/**"
+      - "services/coordinator/**"
+      - "proto/**"
+      - "testdata/results/**"
+      - "examples/scenario.yaml"
+      - "docker-compose.yml"
+      - ".github/workflows/compose.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build images
+        run: docker compose --profile tools build
+
+      - name: Start stack
+        # --wait ждёт, пока healthcheck'и abstock, analyzer и coordinator станут healthy
+        run: docker compose up -d --wait --wait-timeout 180
+
+      - name: Coordinator is healthy
+        run: curl --fail --silent --show-error http://localhost:5080/health
+
+      - name: Coordinator creates a run
+        run: |
+          code=$(curl -s -o response.json -w '%{http_code}' -X POST http://localhost:5080/runs \
+            -H "Content-Type: application/yaml" --data-binary "@examples/scenario.yaml")
+          cat response.json; echo
+          test "$code" = 201
+
+      - name: Agent reaches abstock
+        # Агент возвращает 0 даже при ошибках запросов, поэтому проверяем сам result.json
+        run: |
+          docker compose run --rm -T agent http://abstock:8080/ --steps 10:2 > result.json
+          cat result.json
+          jq -e '.steps | length == 1 and .[0].request_count > 0
+                 and .[0].errors.count == 0 and .[0].skipped_count == 0' result.json
+
+
+      - name: Analyzer service answers FindLimit
+        # Внутри контейнера: сгенерированный код лежит в /app/generated
+        run: |
+          docker compose exec -T analyzer python - <<'EOF'
+          import sys
+          sys.path.insert(0, "/app/generated")
+          import grpc
+          from bendmark.v1 import analyzer_pb2, analyzer_pb2_grpc, common_pb2
+
+          def step(index, rps, p99):
+              return common_pb2.StepResult(
+                  index=index, target_rps=rps, duration_seconds=10, request_count=int(rps * 10),
+                  throughput_rps=rps, latency_ms=common_pb2.LatencyPercentiles(p99=p99),
+                  errors=common_pb2.RequestErrors())
+
+          stub = analyzer_pb2_grpc.AnalyzerServiceStub(grpc.insecure_channel("127.0.0.1:50052"))
+          request = analyzer_pb2.FindLimitRequest(steps=[step(1, 100, 20), step(2, 200, 900)])
+          limit = stub.FindLimit(request, timeout=5).limit
+          print(limit)
+          assert limit.found and limit.limit_rps == 100 and limit.failed_step_index == 2
+          EOF
+
+      - name: Analyzer CLI reads a result
+        run: docker compose run --rm analyzer-cli testdata/results/limit-found.json
+
+      - name: Logs
+        if: failure()
+        run: docker compose logs
+
+      - name: Stop stack
+        if: always()
+        run: docker compose --profile tools down -v

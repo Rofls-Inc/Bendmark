@@ -2,17 +2,18 @@ import argparse
 import sys
 
 from .limit import LimitResult, find_limit
-from .result import load_result
+from .result import load_run_result
 
 
-def describe(limit: LimitResult) -> str:
+def describe(limit: LimitResult, status: str = "completed") -> str:
+    scope = "Прогон прерван. Анализ только завершённых ступеней.\n" if status == "aborted" else ""
     if not limit.found:
-        return f"Предел не найден: все ступени без отказа, предел не ниже {limit.limit_rps:g} запр/с"
+        return scope + f"Предел не найден: завершённые ступени без отказа, предел не ниже {limit.limit_rps:g} запр/с"
     step = limit.failed_step
     failure = f"Отказ на ступени {step.index} ({step.target_rps:g} запр/с): " + "; ".join(limit.reasons)
     if limit.limit_rps is None:
-        return f"Предел ниже первой ступени ({step.target_rps:g} запр/с)\n{failure}"
-    return f"Предел: {limit.limit_rps:g} запр/с\n{failure}"
+        return scope + f"Предел ниже первой ступени ({step.target_rps:g} запр/с)\n{failure}"
+    return scope + f"Предел: {limit.limit_rps:g} запр/с\n{failure}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -34,13 +35,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        steps = load_result(args.result)
-        limit = find_limit(steps, args.p99_ms, args.min_gain, args.max_error_percent)
+        run = load_run_result(args.result)
+        if run.status == "aborted" and not run.steps:
+            print("Прогон прерван: нет завершённых ступеней, предел определить нельзя.")
+            return 0
+        limit = find_limit(run.steps, args.p99_ms, args.min_gain, args.max_error_percent)
     except (OSError, ValueError) as e:
         print(f"Ошибка: {e}", file=sys.stderr)
         return 1
 
-    print(describe(limit))
+    print(describe(limit, run.status))
     return 0
 
 
