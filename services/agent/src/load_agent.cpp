@@ -46,6 +46,31 @@ void write_double(std::ostream& os, double v, int precision = 2) {
     os << s;
 }
 
+void write_json_string(std::ostream& os, const std::string& s) {
+    os << '"';
+    for (unsigned char c : s) {
+        switch (c) {
+            case '"':  os << "\\\""; break;
+            case '\\': os << "\\\\"; break;
+            case '\b': os << "\\b";  break;
+            case '\f': os << "\\f";  break;
+            case '\n': os << "\\n";  break;
+            case '\r': os << "\\r";  break;
+            case '\t': os << "\\t";  break;
+            default:
+                if (c < 0x20) {
+                    char buf[8];
+                    std::snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned>(c));
+                    os << buf;
+                } else {
+                    os << static_cast<char>(c);
+                }
+                break;
+        }
+    }
+    os << '"';
+}
+
 RunResult run_one_step(const std::string& url,
                        const StepConfig& step,
                        const ScenarioConfig& opt,
@@ -232,8 +257,12 @@ bool write_result_json(const std::string& path, const ScenarioResult& result) {
     }
 
     *out << "{\n";
-    *out << "  \"scenario_name\": \"" << result.scenario_name << "\",\n";
-    *out << "  \"status\": \"" << result.status << "\",\n";
+    *out << "  \"scenario_name\": ";
+    write_json_string(*out, result.scenario_name);
+    *out << ",\n";
+    *out << "  \"status\": \"";
+    write_json_string(*out, result.status);
+    *out << "\",\n";
     *out << "  \"steps\": [\n";
 
     for (size_t i = 0; i < result.steps.size(); ++i) {
