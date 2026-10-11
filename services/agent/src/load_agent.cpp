@@ -1,6 +1,7 @@
 #include "load_agent.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -44,6 +45,18 @@ void write_double(std::ostream& os, double v, int precision = 2) {
         if (!s.empty() && s.back() == '.') s.pop_back();
     }
     os << s;
+}
+
+void write_double_exact(std::ostream& os, double v) {
+    char buf[64];
+    auto res = std::to_chars(buf, buf + sizeof(buf), v);
+    if (res.ec == std::errc()) {
+        os.write(buf, res.ptr - buf);
+    } else {
+        char fallback[64];
+        std::snprintf(fallback, sizeof(fallback), "%.17g", v);
+        os << fallback;
+    }
 }
 
 void write_json_string(std::ostream& os, const std::string& s) {
@@ -260,9 +273,9 @@ bool write_result_json(const std::string& path, const ScenarioResult& result) {
     *out << "  \"scenario_name\": ";
     write_json_string(*out, result.scenario_name);
     *out << ",\n";
-    *out << "  \"status\": \"";
+    *out << "  \"status\": ";
     write_json_string(*out, result.status);
-    *out << "\",\n";
+    *out << ",\n";
     *out << "  \"steps\": [\n";
 
     for (size_t i = 0; i < result.steps.size(); ++i) {
@@ -270,10 +283,16 @@ bool write_result_json(const std::string& path, const ScenarioResult& result) {
 
         *out << "    {\n";
         *out << "      \"index\": " << s.index << ",\n";
-        *out << "      \"target_rps\": ";       write_double(*out, s.target_rps);       *out << ",\n";
-        *out << "      \"duration_seconds\": "; write_double(*out, s.duration_seconds); *out << ",\n";
-        *out << "      \"request_count\": "    << s.request_count << ",\n";
-        *out << "      \"throughput_rps\": ";   write_double(*out, s.throughput_rps);    *out << ",\n";
+        *out << "      \"target_rps\": ";
+        write_double_exact(*out, s.target_rps);
+        *out << ",\n";
+        *out << "      \"duration_seconds\": ";
+        write_double_exact(*out, s.duration_seconds);
+        *out << ",\n";
+        *out << "      \"request_count\": " << s.request_count << ",\n";
+        *out << "      \"throughput_rps\": ";
+        write_double(*out, s.throughput_rps);
+        *out << ",\n";
         *out << "      \"latency_ms\": { "
              << "\"p50\": "; write_double(*out, s.latency_p50_ms, 3);
         *out << ", \"p90\": "; write_double(*out, s.latency_p90_ms, 3);
