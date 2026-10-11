@@ -7,7 +7,7 @@ WORKDIR /src
 COPY CMakeLists.txt .
 COPY include/ include/
 COPY src/ src/
-RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF && cmake --build build -j
 
 # Запуск: только сам бинарник и библиотека libcurl без компилятора
 FROM ubuntu:24.04

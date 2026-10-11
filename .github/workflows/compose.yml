@@ -53,7 +53,13 @@ jobs:
           test "$code" = 201
 
       - name: Agent reaches abstock
-        run: docker compose run --rm agent http://abstock:8080/ 10 2 --output /dev/null
+        # Агент возвращает 0 даже при ошибках запросов, поэтому проверяем сам result.json
+        run: |
+          docker compose run --rm -T agent http://abstock:8080/ --steps 10:2 > result.json
+          cat result.json
+          jq -e '.steps | length == 1 and .[0].request_count > 0
+                 and .[0].errors.count == 0 and .[0].skipped_count == 0' result.json
+
 
       - name: Analyzer service answers FindLimit
         # Внутри контейнера: сгенерированный код лежит в /app/generated
