@@ -169,11 +169,13 @@ int main(int argc, char** argv) {
     try {
         steps = run_scenario(sc, sender, stop, nullptr);
     } catch (const std::exception& e) {
+        sender.reset();
         curl_global_cleanup();
         std::cerr << "Scenario failed: " << e.what() << "\n";
         return 4;
     }
-
+ 
+    sender.reset();
     curl_global_cleanup();
 
     ScenarioResult result;
