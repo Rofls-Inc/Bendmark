@@ -29,9 +29,9 @@ CLI учитывает `status`: для `aborted` явно сообщает, ч�
 [`proto/README.md`](../../proto/README.md).
 
 
-## Запуск
+## Запуск из командной строки
 
-Нужен Python 3.10+. Команды выполняются из `services/analyzer`.
+Нужен Python 3.10+, зависимостей нет. Команды выполняются из `services/analyzer`.
 
 ```bash
 python -m analyzer ../../testdata/results/limit-found.json
@@ -41,8 +41,41 @@ python -m analyzer ../../testdata/results/limit-found.json --p99-ms 300 --min-ga
 Через Docker из корня репозитория (путь к файлу относительно корня):
 
 ```bash
-docker compose run --rm analyzer testdata/results/limit-found.json --p99-ms 300
+docker compose run --rm analyzer-cli testdata/results/limit-found.json --p99-ms 300
 ```
+
+## gRPC-сервис
+
+`python -m analyzer.server` отвечает на `AnalyzerService.FindLimit`
+([`proto/bendmark/v1/analyzer.proto`](../../proto/bendmark/v1/analyzer.proto)).
+Его вызывает координатор после завершения прогона. Алгоритм тот же, что у CLI.
+
+```bash
+pip install -r requirements-dev.txt   # grpcio, grpcio-tools, protobuf 1.70.0 / 5.29.3
+python gen_proto.py                   # код из proto -> generated/ (не коммитится)
+python -m analyzer.server --listen 0.0.0.0:50052
+```
+
+В Docker сервис `analyzer` из `docker-compose.yml` запускается сам при
+`docker compose up`; код из proto генерируется при сборке образа.
+
+`gen_proto.py` нужно запускать заново после изменения `.proto`. Тесты генерируют
+код сами, если его ещё нет.
+
+На Windows для grpcio 1.70 есть готовые сборки только до Python 3.13. На Python 3.14
+pip пытается собрать пакет из исходников и требует компилятор C++. Создайте venv на
+3.13: `py -3.13 -m venv .venv`.
+
+| Ситуация | Ответ |
+| --- | --- |
+| Предел найден или нет | `OK`: `found`, `limit_rps` (нижняя оценка, если `found=false`; нет, если отказ на первой ступени), `failed_step_index` (с единицы, только при `found=true`), `reasons` |
+| Нет ступеней, индексы не `1..N`, нерастущий `target_rps`, `errors.count > request_count`, нечисловые метрики, неверные пороги | `INVALID_ARGUMENT` |
+| У ступени `skipped_count > 0` или `request_count = 0` | `FAILED_PRECONDITION`: измерения не определяют предел сервиса |
+
+Порядок проверок: сначала форма запроса и пороги (`INVALID_ARGUMENT`), затем
+пригодность измерений (`FAILED_PRECONDITION`), затем поиск предела.
+Отсутствующий порог в `options` — значение по умолчанию (p99 500 мс, прирост 0.5,
+ошибки 1 %); явно переданный ноль для доли ошибок сохраняется.
 
 ## Тесты
 
@@ -52,6 +85,9 @@ python -m venv .venv
 pip install -r requirements-dev.txt
 pytest
 ```
+
+`tests/test_server.py` поднимает gRPC-сервер в том же процессе и проверяет, что
+на каждом файле из `testdata/results/` сервис даёт тот же исход, что CLI.
 
 Тесты читают общие результаты из [`testdata/results/`](../../testdata/results/).
 Описание случаев и ожидаемых пределов — в

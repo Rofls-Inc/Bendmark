@@ -38,4 +38,6 @@ public sealed record Run
     public string? Error { get; init; }
     public required Scenario Scenario { get; init; }
     public IReadOnlyList<StepResultDto> Steps { get; init; } = [];
+    // Поиск предела (#34): null, пока прогон не завершён, и у failed или без ступеней
+    public Analysis? Analysis { get; init; }
 }

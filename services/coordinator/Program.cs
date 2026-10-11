@@ -21,6 +21,14 @@ builder.Services.AddOptions<AgentOptions>()
         "Agent:RequestTimeoutSeconds должен быть конечным числом больше нуля")
     .ValidateOnStart();
 
+builder.Services.AddOptions<AnalyzerOptions>()
+    .Bind(builder.Configuration.GetSection(AnalyzerOptions.SectionName))
+    .Validate(o => Uri.TryCreate(o.Address, UriKind.Absolute, out _),
+        "Analyzer:Address должен быть абсолютным URL, например http://analyzer:50052")
+    .Validate(o => double.IsFinite(o.TimeoutSeconds) && o.TimeoutSeconds > 0,
+        "Analyzer:TimeoutSeconds должен быть конечным числом больше нуля")
+    .ValidateOnStart();
+
 builder.Services.AddSingleton<RunStore>();
 builder.Services.AddHealthChecks();
 builder.Services.AddSingleton<RunQueue>();
@@ -32,6 +40,12 @@ builder.Services.AddKeyedSingleton<GrpcChannel>(AgentOptions.SectionName, (servi
 builder.Services.AddSingleton<IAgentRunner>(services => new GrpcAgentRunner(
     services.GetRequiredKeyedService<GrpcChannel>(AgentOptions.SectionName),
     services.GetRequiredService<IOptions<AgentOptions>>()));
+
+builder.Services.AddKeyedSingleton<GrpcChannel>(AnalyzerOptions.SectionName, (services, _) =>
+    GrpcChannel.ForAddress(services.GetRequiredService<IOptions<AnalyzerOptions>>().Value.Address));
+builder.Services.AddSingleton<IAnalyzer>(services => new GrpcAnalyzer(
+    services.GetRequiredKeyedService<GrpcChannel>(AnalyzerOptions.SectionName),
+    services.GetRequiredService<IOptions<AnalyzerOptions>>()));
 
 var app = builder.Build();
 

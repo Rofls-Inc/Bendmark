@@ -69,7 +69,7 @@ public sealed class RunStore
     }
 
     // running -> конечный статус. Срабатывает один раз: первый зафиксированный исход побеждает
-    public bool TryFinish(Guid id, RunStatus status, string? error)
+    public bool TryFinish(Guid id, RunStatus status, string? error, Analysis? analysis = null)
     {
         if (status is RunStatus.Created or RunStatus.Running)
             throw new ArgumentOutOfRangeException(nameof(status), status, "Нужен конечный статус");
@@ -84,7 +84,22 @@ public sealed class RunStore
                 Status = status,
                 Error = error,
                 FinishedAt = DateTimeOffset.UtcNow,
+                Analysis = analysis,
             };
+            return true;
+        }
+    }
+
+    // Результат анализа завершённого прогона
+    public bool SetAnalysis(Guid id, Analysis analysis)
+    {
+        lock (_gate)
+        {
+            if (!_runs.TryGetValue(id, out var entry)
+                || entry.Snapshot.Status is RunStatus.Created or RunStatus.Running)
+                return false;
+
+            entry.Snapshot = entry.Snapshot with { Analysis = analysis };
             return true;
         }
     }
