@@ -22,6 +22,13 @@ struct ScenarioConfig {
     int concurrency_override = 0;
 };
 
+struct RequestResult {
+    bool success = false;
+    long latency_us = 0;      // от запланированного тика до ответа/таймаута
+    long http_code = 0;
+    std::string error;
+};
+
 struct StepResult {
     int index = 0;
     double target_rps = 0.0;

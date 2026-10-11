@@ -113,7 +113,15 @@ RunResult run_one_step(const std::string& url,
                     ready.pop_front();
                 }
 
-                RequestResult r = sender->send(url, timeout, scheduled_at);
+                SendOutcome outcome = sender->send(url, timeout);
+                auto end = std::chrono::steady_clock::now();
+
+                RequestResult r;
+                r.success = outcome.success;
+                r.http_code = outcome.http_code;
+                r.error = std::move(outcome.error);
+                r.latency_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                    end - scheduled_at).count();
 
                 {
                     std::lock_guard<std::mutex> lk(results_mtx);
