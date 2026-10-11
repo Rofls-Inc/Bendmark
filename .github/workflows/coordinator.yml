@@ -4,13 +4,17 @@ on:
   pull_request:
     paths:
       - "services/coordinator/**"
+      - "proto/**"
       - "testdata/scenarios/**"
+      - "testdata/results/limit-found.json"
       - ".github/workflows/coordinator.yml"
   push:
     branches: [main, dev]
     paths:
       - "services/coordinator/**"
+      - "proto/**"
       - "testdata/scenarios/**"
+      - "testdata/results/limit-found.json"
       - ".github/workflows/coordinator.yml"
   workflow_dispatch:
 

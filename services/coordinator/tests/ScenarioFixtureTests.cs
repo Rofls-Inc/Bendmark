@@ -1,21 +1,18 @@
 using System.Net;
-using System.Text;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc.Testing;
 using Xunit;
 
 namespace Bendmark.Coordinator.Tests;
 
-public class ScenarioFixtureTests(WebApplicationFactory<Program> factory)
-    : IClassFixture<WebApplicationFactory<Program>>
+// Фабрика подменяет агента фейком: тестам разбора сценария агент не нужен
+public class ScenarioFixtureTests(CoordinatorFactory factory) : IClassFixture<CoordinatorFactory>
 {
     private readonly HttpClient client = factory.CreateClient();
 
-    private static string ReadFixture(string name) =>
-        File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "testdata", "scenarios", name));
+    private static string ReadFixture(string name) => TestData.Read("scenarios", name);
 
     private async Task<HttpResponseMessage> PostFixture(string name, string contentType) =>
-        await client.PostAsync("/runs", new StringContent(ReadFixture(name), Encoding.UTF8, contentType));
+        await Api.PostScenarioAsync(client, name, contentType);
 
     [Theory]
     [InlineData("ramp.json", "application/json")]
