@@ -29,10 +29,13 @@ services:
       start_period: 60s
 
   # Агент — gRPC-сервер AgentService (#45). Слушает 50051, ждёт Run от координатора.
+  # Значение по умолчанию для команды задаётся здесь, чтобы `docker compose run`
+  # мог подменить его аргументами CLI-режима (URL, --steps, ...).
   agent:
     build:
       context: .
       dockerfile: services/agent/Dockerfile
+    command: ["--listen", "0.0.0.0:50051"]
     ports:
       - "127.0.0.1:50051:50051"
     networks: [bendmark]

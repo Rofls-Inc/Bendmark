@@ -35,4 +35,3 @@ COPY --from=build /src/services/agent/build/load_agent /usr/local/bin/load_agent
 
 USER nobody
 ENTRYPOINT ["load_agent"]
-CMD ["--listen", "0.0.0.0:50051"]
