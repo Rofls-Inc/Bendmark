@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError, getRun } from '../api/client'
 import type { Run } from '../api/types'
 import { demoRuns, isDemoRun } from '../demo/demoRun'
-import { rememberRun } from './recent'
+import { forgetRun, rememberRun } from './recent'
 import { needsPolling } from './view'
 
 export const POLL_INTERVAL_MS = 2000
@@ -43,6 +43,8 @@ export function useRun(id: string): { state: RunState; applyRun: (run: Run) => v
         const message = e instanceof Error ? e.message : 'Не удалось получить прогон'
         // Прогона нет (например, координатор перезапустился и потерял его): повторять бесполезно
         if (e instanceof ApiError && e.status === 404) {
+          // Запись в «Недавних» больше никуда не ведёт
+          forgetRun(id)
           setState({ id, value: { kind: 'error', message } })
           return
         }

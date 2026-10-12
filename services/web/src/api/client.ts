@@ -58,7 +58,7 @@ export async function getRun(id: string, signal?: AbortSignal): Promise<Run> {
 
 // 200 - прогон уже остановлен; 202 - остановка идёт, итог придёт в GET /runs/{id}
 export async function stopRun(id: string): Promise<{ run: Run; pending: boolean }> {
-  const response = await fetch(`${BASE}/runs/${encodeURIComponent(id)}/stop`, { method: 'POST' })
+  const response = await request(`${BASE}/runs/${encodeURIComponent(id)}/stop`, { method: 'POST' })
   if (response.status === 200 || response.status === 202)
     return { run: await response.json(), pending: response.status === 202 }
   if (response.status === 404)

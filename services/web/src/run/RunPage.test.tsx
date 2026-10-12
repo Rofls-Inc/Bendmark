@@ -7,7 +7,7 @@ import type { Run, RunStatus } from '../api/types'
 import { demoRun } from '../demo/demoRun'
 import { json, mockFetch } from '../test/fetch'
 import { RunPage } from './RunPage'
-import { loadRecent } from './recent'
+import { loadRecent, rememberRun } from './recent'
 import { POLL_INTERVAL_MS } from './useRun'
 
 const ID = '7f1c2b8e-0000-4000-8000-000000000001'
@@ -171,6 +171,28 @@ describe('RunPage', () => {
     expect(await screen.findByText('Прогон не найден')).toBeTruthy()
     await tick(POLL_INTERVAL_MS * 2)
     expect(calls).toHaveLength(1)
+  })
+
+  it('404 убирает прогон из «Недавних»', async () => {
+    rememberRun({ ...run('running', 1), name: 'потерянный' })
+    expect(loadRecent().some((r) => r.id === ID)).toBe(true)
+    mockFetch(() => json(404, {}))
+    renderPage()
+    expect(await screen.findByText('Прогон не найден')).toBeTruthy()
+    expect(loadRecent().some((r) => r.id === ID)).toBe(false)
+  })
+
+  it('координатор недоступен при остановке: понятный текст вместо «Failed to fetch»', async () => {
+    mockFetch((call) => {
+      if (call.method === 'POST')
+        throw new TypeError('Failed to fetch')
+      return json(200, run('running', 1))
+    })
+    renderPage()
+    const u = user()
+    await u.click(await screen.findByRole('button', { name: 'Остановить' }))
+    await u.click(screen.getByRole('button', { name: 'Остановить' }))
+    expect(await screen.findByText(/Координатор недоступен/)).toBeTruthy()
   })
 
   it('«Повторить» открывает форму', async () => {
