@@ -320,7 +320,7 @@ docker compose up --build
 ```
 
 Первая сборка занимает несколько минут: ABStock собирается из [своего репозитория](https://github.com/yarosvla/ABStock).
-Когда сервисы станут `healthy`, координатор отвечает на http://localhost:5080, ABStock - на http://localhost:5062,
+Когда сервисы станут `healthy`, интерфейс открывается на http://localhost:5173, координатор отвечает на http://localhost:5080, ABStock - на http://localhost:5062,
 анализатор (gRPC) - на `localhost:50052`.
 Проверить можно запросами из [README координатора](services/coordinator/README.md#проверка-через-curl).
 
