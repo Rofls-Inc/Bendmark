@@ -47,12 +47,14 @@ AgentCore::RunOutcome AgentCore::run(const std::string& run_id,
     }
 
     auto cleanup = [this, run_id]() {
-        std::lock_guard<std::mutex> lk(mu_);
-        if (active_run_id_ == run_id) {
+        {
+            std::lock_guard<std::mutex> lk(mu_);
+            if (active_run_id_ != run_id) return;
             running_ = false;
             active_run_id_.clear();
             cancel_.reset();
         }
+        idle_cv_.notify_all();
     };
 
     try {
@@ -79,11 +81,12 @@ AgentCore::RunOutcome AgentCore::run(const std::string& run_id,
 }
 
 bool AgentCore::stop(const std::string& run_id) {
-    std::lock_guard<std::mutex> lk(mu_);
+    std::unique_lock<std::mutex> lk(mu_);
     if (!running_ || active_run_id_ != run_id) {
         return false;
     }
-    if (cancel_) cancel_->store(true);
+    cancel_->store(true);
+    idle_cv_.wait(lk, [&] { return active_run_id_ != run_id; });
     return true;
 }
 

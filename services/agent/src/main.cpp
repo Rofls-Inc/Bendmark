@@ -162,7 +162,14 @@ int run_cli(int argc, char** argv) {
 
     auto sender = make_http_sender();
     std::atomic<bool> stop{false};
-    std::vector<StepResult> steps = run_scenario(sc, sender, stop, nullptr);
+    std::vector<StepResult> steps;
+
+    try {
+        steps = run_scenario(sc, sender, stop, nullptr);
+    } catch (const std::exception& e) {
+        std::cerr << "Scenario failed: " << e.what() << "\n";
+        return 4;
+    }
 
     ScenarioResult result;
     result.scenario_name = name;
@@ -202,7 +209,7 @@ int run_grpc(int argc, char** argv) {
     int concurrency_override = 0;
 
     try {
-        for (int i = 1; i < argc; ++i) {     // <-- было 2, стало 1
+        for (int i = 1; i < argc; ++i) {
             std::string a = argv[i];
             if (a == "--listen" && i + 1 < argc) {
                 listen_addr = argv[++i];
@@ -264,8 +271,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Режим выбирается по первому аргументу: URL (не флаг) — CLI,
-    // иначе gRPC-сервер.
     bool cli_mode = (argv[1][0] != '-');
 
     if (cli_mode && argc < 3) {

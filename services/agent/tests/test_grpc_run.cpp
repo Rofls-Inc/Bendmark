@@ -1,5 +1,6 @@
 #include "agent_service.hpp"
 #include "fake_sender.hpp"
+#include "grpc_test_util.hpp"
 #include "test_util.hpp"
 
 #include <grpcpp/grpcpp.h>
@@ -11,26 +12,6 @@
 #include <vector>
 
 namespace {
-
-struct TestServer {
-    std::unique_ptr<grpc::Server> server;
-    std::unique_ptr<AgentServiceImpl> service;
-    std::string addr;
-};
-
-TestServer start_test_server(std::shared_ptr<AgentCore> core) {
-    auto service = std::make_unique<AgentServiceImpl>(core);
-
-    grpc::ServerBuilder builder;
-    int port = 0;
-    builder.AddListeningPort("127.0.0.1:0", grpc::InsecureServerCredentials(), &port);
-    builder.RegisterService(service.get());
-
-    auto server = builder.BuildAndStart();
-    std::string addr = "127.0.0.1:" + std::to_string(port);
-
-    return TestServer{std::move(server), std::move(service), addr};
-}
 
 void test_two_steps_two_responses() {
     AgentOptions opt;

@@ -7,6 +7,7 @@
 #include "bendmark/v1/agent.grpc.pb.h"
 
 #include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -42,6 +43,7 @@ private:
     AgentOptions options_;
 
     std::mutex mu_;
+    std::condition_variable idle_cv_;
     bool running_ = false;
     std::string active_run_id_;
     std::shared_ptr<std::atomic<bool>> cancel_;
