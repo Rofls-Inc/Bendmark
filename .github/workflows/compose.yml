@@ -62,6 +62,7 @@ jobs:
           test "$code" = 201
 
       - name: Agent reaches abstock
+        timeout-minutes: 2
         # Агент возвращает 0 даже при ошибках запросов, поэтому проверяем сам result.json
         run: |
           docker compose run --rm -T agent http://abstock:8080/ --steps 10:2 > result.json
