@@ -23,8 +23,21 @@ export class ApiError extends Error {
   }
 }
 
+export const UNAVAILABLE_MESSAGE = 'Координатор недоступен'
+
+// fetch бросает TypeError («Failed to fetch»), если до координатора не достучаться
+export async function request(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init)
+  } catch (e) {
+    if (e instanceof TypeError)
+      throw new ApiError(0, UNAVAILABLE_MESSAGE)
+    throw e
+  }
+}
+
 export async function createRun(scenario: Scenario): Promise<{ id: string; status: RunStatus }> {
-  const response = await fetch(`${BASE}/runs`, {
+  const response = await request(`${BASE}/runs`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(scenario),
@@ -35,7 +48,7 @@ export async function createRun(scenario: Scenario): Promise<{ id: string; statu
 }
 
 export async function getRun(id: string, signal?: AbortSignal): Promise<Run> {
-  const response = await fetch(`${BASE}/runs/${encodeURIComponent(id)}`, { signal })
+  const response = await request(`${BASE}/runs/${encodeURIComponent(id)}`, { signal })
   if (response.ok)
     return response.json()
   if (response.status === 404)

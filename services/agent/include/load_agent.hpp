@@ -1,34 +1,43 @@
 #pragma once
 
-#include <chrono>
+#include "sender.hpp"
+#include "stats.hpp"
+
+#include <atomic>
+#include <functional>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
-struct LoadConfig {
+struct ScenarioConfig {
     std::string url;
-    double rate_per_sec = 1.0;
-    std::chrono::seconds duration{10};
-    int concurrency = 16;
+    std::vector<StepConfig> steps;
     long timeout_ms = 5000;
+    int max_concurrency = 1000;
+    int concurrency_override = 0;
 };
 
-struct RequestResult {
-    bool success = false;
-    long latency_us = 0;
-    std::string error;
+struct ScenarioResult {
+    std::string scenario_name;
+    std::string status;
+    std::vector<StepResult> steps;
 };
 
-struct RunResult {
-    std::vector<RequestResult> requests;
-    long long skipped = 0;
-};
+using StepCallback = std::function<void(const StepResult&)>;
 
-class LoadGenerator {
-public:
-    explicit LoadGenerator(LoadConfig cfg);
+int compute_workers(const StepConfig& step, const ScenarioConfig& opt);
 
-    RunResult run();
+std::optional<StepResult> run_step(const std::string& url,
+                                   const StepConfig& step,
+                                   int index,
+                                   const ScenarioConfig& opt,
+                                   std::shared_ptr<Sender> sender,
+                                   std::atomic<bool>& stop);
 
-private:
-    LoadConfig cfg_;
-};
+std::vector<StepResult> run_scenario(const ScenarioConfig& sc,
+                                     std::shared_ptr<Sender> sender,
+                                     std::atomic<bool>& stop,
+                                     const StepCallback& on_step);
+
+bool write_result_json(const std::string& path, const ScenarioResult& result);

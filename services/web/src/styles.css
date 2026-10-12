@@ -541,8 +541,14 @@ button:disabled {
 }
 
 .steps tr.verdict-after,
+.steps tr.verdict-not-analyzed,
 .steps tr.running {
   color: var(--muted);
+}
+
+.chart-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
 }
 
 .reasons {

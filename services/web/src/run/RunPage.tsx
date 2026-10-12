@@ -33,10 +33,10 @@ export function RunPage() {
       </div>
     )
 
-  const { run } = state
+  const { run, offline } = state
   return FINAL_STATUSES.includes(run.status)
-    ? <Report run={run} />
-    : <Live run={run} onStopped={applyRun} />
+    ? <Report run={run} offline={offline} />
+    : <Live run={run} offline={offline} onStopped={applyRun} />
 }
 
 function Header({ run, subtitle, actions }: { run: Run; subtitle: string; actions?: ReactNode }) {
@@ -55,6 +55,16 @@ function Header({ run, subtitle, actions }: { run: Run; subtitle: string; action
   )
 }
 
+interface PageProps {
+  run: Run
+  // Последний опрос не удался: показываем прошлый ответ и предупреждение
+  offline: boolean
+}
+
+function Offline() {
+  return <p className="alert">Нет связи с координатором, повторяем…</p>
+}
+
 // Текущее время, обновляется раз в секунду, пока active
 function useNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now())
@@ -67,8 +77,8 @@ function useNow(active: boolean): number {
   return now
 }
 
-function Live({ run, onStopped }: { run: Run; onStopped: (run: Run) => void }) {
-  const steps = run.steps ?? []
+function Live({ run, offline, onStopped }: PageProps & { onStopped: (run: Run) => void }) {
+  const steps = run.steps
   const now = useNow(run.status === 'running')
   const time = progress(run, now)
   // Ступень, которая идёт по часам; пока её результата нет, в таблице строка «идёт…»
@@ -85,6 +95,7 @@ function Live({ run, onStopped }: { run: Run; onStopped: (run: Run) => void }) {
         subtitle="прогон"
         actions={<StopButton runId={run.id} onStopped={onStopped} disabled={isDemoRun(run.id)} />}
       />
+      {offline && <Offline />}
 
       {run.status === 'created' && (
         <p className="note">Прогон в очереди и ждёт агента. Координатор запускает прогоны по одному.</p>
@@ -144,12 +155,12 @@ function Live({ run, onStopped }: { run: Run; onStopped: (run: Run) => void }) {
   )
 }
 
-function Report({ run }: { run: Run }) {
+function Report({ run, offline }: PageProps) {
   const navigate = useNavigate()
-  const steps = run.steps ?? []
+  const { steps, analysis } = run
   const head = headline(run)
-  const failed = run.limit?.failed_step_index != null
-    ? steps.find((s) => s.index === run.limit?.failed_step_index)
+  const failed = analysis?.failed_step_index != null
+    ? steps.find((s) => s.index === analysis.failed_step_index)
     : undefined
   const skipped = firstSkippedStep(steps)
   const downloadable = !isDemoRun(run.id) && (run.status === 'completed' || run.status === 'aborted')
@@ -168,6 +179,7 @@ function Report({ run }: { run: Run }) {
   return (
     <div className="page">
       <Header run={run} subtitle="отчёт" actions={actions} />
+      {offline && <Offline />}
 
       {run.status === 'failed' && (
         <p className="alert">
@@ -206,26 +218,22 @@ function Report({ run }: { run: Run }) {
       {steps.length === 0 ? (
         <section className="panel">
           <p className="muted">
-            {run.status === 'failed' ? 'Ни одна ступень не завершилась.' : 'Результатов ступеней нет.'}
+            Ни одна ступень не завершилась.
           </p>
         </section>
       ) : (
         <div className="grid-2 wide-left">
           <section className="panel">
             <h2>Кривая производительности</h2>
-            <PerformanceChart steps={steps} limitRps={run.limit?.found ? run.limit.limit_rps : null} />
+            <PerformanceChart
+              steps={steps}
+              limitRps={analysis?.status === 'found' ? analysis.limit_rps : null}
+            />
+            <p className="muted chart-hint">пропускная — левая ось · p99 — правая ось, логарифмическая</p>
           </section>
           <section className="panel">
             <h2>Почему отказ</h2>
-            {run.limit?.reasons.length ? (
-              <ul className="reasons">
-                {run.limit.reasons.map((r) => <li key={r}>{r}</li>)}
-              </ul>
-            ) : (
-              <p className="muted">
-                {run.limit ? 'Ни одна ступень не отказала.' : 'Анализ появится, когда координатор начнёт вызывать анализатор (#34).'}
-              </p>
-            )}
+            <Reasons analysis={analysis} />
           </section>
         </div>
       )}
@@ -233,11 +241,23 @@ function Report({ run }: { run: Run }) {
       {steps.length > 0 && (
         <section className="panel">
           <h2>Ступени</h2>
-          <StepsTable steps={steps} limit={run.limit} />
+          <StepsTable steps={steps} analysis={analysis} />
         </section>
       )}
     </div>
   )
+}
+
+function Reasons({ analysis }: { analysis: Run['analysis'] }) {
+  if (!analysis)
+    return <p className="muted">Анализ не выполнялся.</p>
+  if (analysis.reasons.length > 0)
+    return (
+      <ul className="reasons">
+        {analysis.reasons.map((r) => <li key={r}>{r}</li>)}
+      </ul>
+    )
+  return <p className="muted">{analysis.status === 'not_found' ? 'Ни одна ступень не отказала.' : analysis.message}</p>
 }
 
 function SkippedNote({ step }: { step: number }) {

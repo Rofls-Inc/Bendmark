@@ -1,0 +1,9 @@
+**
+!proto/
+!proto/**
+!services/
+!services/coordinator/
+!services/coordinator/**
+**/bin/
+**/obj/
+**/tests/

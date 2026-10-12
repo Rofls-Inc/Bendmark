@@ -20,9 +20,8 @@ function run(status: RunStatus, stepCount: number, extra: Partial<Run> = {}): Ru
     started_at: status === 'created' ? null : new Date().toISOString(),
     finished_at: null,
     error: null,
-    steps: demoRun.steps!.slice(0, stepCount),
-    // Координатор пока не отдаёт предел (#34)
-    limit: undefined,
+    steps: demoRun.steps.slice(0, stepCount),
+    analysis: null,
     ...extra,
   }
 }
@@ -159,7 +158,7 @@ describe('RunPage', () => {
 
   it('пропуски агента отмечены', async () => {
     mockFetch(() => json(200, run('completed', 3, {
-      steps: demoRun.steps!.slice(0, 3).map((s) => (s.index === 3 ? { ...s, skipped_count: 40 } : s)),
+      steps: demoRun.steps.slice(0, 3).map((s) => (s.index === 3 ? { ...s, skipped_count: 40 } : s)),
     })))
     renderPage()
     expect(await screen.findByText(/С 3-й ступени агент не успевал/)).toBeTruthy()

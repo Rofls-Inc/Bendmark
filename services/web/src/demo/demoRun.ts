@@ -1,11 +1,12 @@
 import type { Run, StepResult } from '../api/types'
-// Копия examples/result.json: файлы вне services/web не попадают в сборку Docker
+// Копия testdata/results/limit-found.json: файлы вне services/web не попадают в сборку Docker.
+// CI сверяет копию с оригиналом (web.yml).
 import result from './result.json'
 
 export const DEMO_RUN_ID = 'demo'
 
-// Демо-прогон, чтобы проверить экраны, пока координатор не отдаёт ступени и предел.
-// Предел - то, что выдаёт анализатор на этом файле с порогами по умолчанию.
+// Демо-прогон, чтобы посмотреть отчёт без координатора и агента.
+// Анализ — то, что координатор отдаёт для этого файла с порогами анализатора по умолчанию.
 export const demoRun: Run = {
   id: DEMO_RUN_ID,
   scenario: {
@@ -18,9 +19,10 @@ export const demoRun: Run = {
   started_at: '2026-10-01T12:00:01Z',
   finished_at: '2026-10-01T12:05:16Z',
   error: null,
-  steps: result.steps as StepResult[],
-  limit: {
-    found: true,
+  // В файле нет skipped_count, а координатор отдаёт его всегда
+  steps: result.steps.map((s): StepResult => ({ ...s, skipped_count: 0 })),
+  analysis: {
+    status: 'found',
     limit_rps: 350,
     failed_step_index: 7,
     reasons: [
@@ -28,11 +30,13 @@ export const demoRun: Run = {
       'пропускная выросла на 3 запр/с при росте нагрузки на 50 запр/с',
       'ошибок 2.4 % при пороге 1 %',
     ],
+    analyzed_steps: 7,
+    message: 'Предел: 350 запр/с, отказ на ступени 7 (400 запр/с)',
   },
 }
 
 // Остальные состояния отчёта и живой прогон, чтобы их можно было посмотреть без координатора
-const steps = demoRun.steps!
+const steps = demoRun.steps
 
 export const demoRuns: Record<string, () => Run> = {
   [DEMO_RUN_ID]: () => demoRun,
@@ -42,7 +46,14 @@ export const demoRuns: Record<string, () => Run> = {
     status: 'aborted',
     finished_at: '2026-10-01T12:02:16Z',
     steps: steps.slice(0, 3),
-    limit: { found: false, limit_rps: 200, failed_step_index: null, reasons: [] },
+    analysis: {
+      status: 'not_found',
+      limit_rps: 200,
+      failed_step_index: null,
+      reasons: [],
+      analyzed_steps: 3,
+      message: 'Прогон остановлен, анализ только по завершённым ступеням. Отказа не было: предел не ниже 200 запр/с',
+    },
   }),
   'demo-failed': () => ({
     ...demoRun,
@@ -51,14 +62,21 @@ export const demoRuns: Record<string, () => Run> = {
     finished_at: '2026-10-01T12:01:31Z',
     error: 'Агент недоступен: Status(StatusCode="Unavailable", Detail="failed to connect to all addresses")',
     steps: steps.slice(0, 2),
-    limit: null,
+    analysis: null,
   }),
   'demo-skipped': () => ({
     ...demoRun,
     id: 'demo-skipped',
     steps: steps.map((s) => (s.index >= 6 ? { ...s, skipped_count: s.index === 6 ? 120 : 950 } : s)),
     // Анализатор берёт только ступени до первой с пропусками
-    limit: { found: false, limit_rps: 300, failed_step_index: null, reasons: [] },
+    analysis: {
+      status: 'not_found',
+      limit_rps: 300,
+      failed_step_index: null,
+      reasons: [],
+      analyzed_steps: 5,
+      message: 'Отказа не было до ступени 6: предел не ниже 300 запр/с, дальше агент не успевал подавать нагрузку',
+    },
   }),
   // Идёт четвёртая ступень: время старта считается от текущего момента
   'demo-live': () => ({
@@ -68,7 +86,7 @@ export const demoRuns: Record<string, () => Run> = {
     started_at: new Date(Date.now() - 160_000).toISOString(),
     finished_at: null,
     steps: steps.slice(0, 3),
-    limit: null,
+    analysis: null,
   }),
 }
 
