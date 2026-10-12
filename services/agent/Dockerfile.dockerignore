@@ -1,0 +1,18 @@
+# Для агента нужны: proto/ и services/agent/.
+# Всё остальное не копируем.
+
+# Игнорируем всё, что не относится к агенту и proto
+services/coordinator/
+services/analyzer/
+services/target/
+docs/
+assets/
+examples/
+testdata/
+.github/
+build/
+**/build/
+**/.git/
+**/.gitignore
+**/*.md
+**/tests/

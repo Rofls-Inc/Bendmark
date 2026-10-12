@@ -1,6 +1,7 @@
 #include "sender.hpp"
 
 #include <curl/curl.h>
+#include <atomic>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -10,6 +11,11 @@ namespace {
 
 size_t discard_body(char*, size_t size, size_t nmemb, void*) {
     return size * nmemb;
+}
+
+// Прерывает запрос, когда выставлен флаг остановки (Stop, отмена вызова, deadline).
+int progress_cb(void* p, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+    return static_cast<std::atomic<bool>*>(p)->load() ? 1 : 0;
 }
 
 // Общий для всех рабочих потоков кеш соединений, DNS и TLS-сессий.
@@ -50,7 +56,9 @@ constexpr long kMaxConnections = 1000;   // совпадает с --max-concurre
 
 class HttpSender : public Sender {
 public:
-    SendOutcome send(const std::string& url, long timeout_ms) override {
+    SendOutcome send(const std::string& url,
+                     long timeout_ms,
+                     std::atomic<bool>& stop) override {
         SendOutcome out;
 
         CURL* curl = curl_easy_init();
@@ -67,6 +75,9 @@ public:
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, timeout_ms);
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+        curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);
+        curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &stop);
+        curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
         CURLcode rc = curl_easy_perform(curl);
 
@@ -80,6 +91,8 @@ public:
             } else {
                 out.error = "HTTP " + std::to_string(code);
             }
+        } else if (rc == CURLE_ABORTED_BY_CALLBACK) {
+            out.error = "aborted";
         } else {
             out.error = curl_easy_strerror(rc);
         }

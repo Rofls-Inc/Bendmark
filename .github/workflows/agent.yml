@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - "services/agent/**"
+      - "proto/**"
       - ".github/workflows/agent.yml"
   push:
     branches: [main, dev]
     paths:
       - "services/agent/**"
+      - "proto/**"
       - ".github/workflows/agent.yml"
   workflow_dispatch:
 
@@ -23,7 +25,7 @@ defaults:
 jobs:
   build:
     name: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -37,9 +39,14 @@ jobs:
             echo "::notice::services/agent: CMakeLists.txt не найден, собирать нечего"
           fi
 
-      - name: Install libcurl
+      - name: Install dependencies
         if: steps.check.outputs.found == 'true'
-        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libcurl4-openssl-dev \
+            libgrpc++-dev libgrpc-dev \
+            libprotobuf-dev protobuf-compiler protobuf-compiler-grpc
 
       - name: Configure
         if: steps.check.outputs.found == 'true'
