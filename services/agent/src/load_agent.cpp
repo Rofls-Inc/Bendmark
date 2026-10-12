@@ -122,7 +122,8 @@ RunResult run_one_step(const std::string& url,
                        const StepConfig& step,
                        const ScenarioConfig& opt,
                        std::shared_ptr<Sender> sender,
-                       std::atomic<bool>& stop) {
+                       std::atomic<bool>& stop,
+                       const CancelCheck& external_cancel) {
     RunResult out;
     std::mutex results_mtx;
     std::mutex work_mtx;
@@ -149,7 +150,7 @@ RunResult run_one_step(const std::string& url,
                         ready.pop_front();
                     }
 
-                    SendOutcome outcome = sender->send(url, timeout);
+                    SendOutcome outcome = sender->send(url, timeout, stop);
                     auto end = std::chrono::steady_clock::now();
 
                     RequestResult r;
@@ -192,6 +193,12 @@ RunResult run_one_step(const std::string& url,
     auto next_tick = start_time;
 
     while (next_tick < end_time) {
+        if (stop.load()) break;
+        if (external_cancel && external_cancel()) {
+            stop.store(true);
+            break;
+        }
+
         std::this_thread::sleep_until(next_tick);
 
         bool queued = false;
@@ -206,8 +213,6 @@ RunResult run_one_step(const std::string& url,
             }
         }
         if (queued) work_cv.notify_one();
-
-        if (stop.load()) break;
 
         next_tick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval);
     }
@@ -245,8 +250,9 @@ std::optional<StepResult> run_step(const std::string& url,
                                    int index,
                                    const ScenarioConfig& opt,
                                    std::shared_ptr<Sender> sender,
-                                   std::atomic<bool>& stop) {
-    RunResult run = run_one_step(url, step, opt, sender, stop);
+                                   std::atomic<bool>& stop,
+                                   const CancelCheck& external_cancel) {
+    RunResult run = run_one_step(url, step, opt, sender, stop, external_cancel);
 
     if (stop.load()) {
         return std::nullopt;
@@ -258,7 +264,8 @@ std::optional<StepResult> run_step(const std::string& url,
 std::vector<StepResult> run_scenario(const ScenarioConfig& sc,
                                      std::shared_ptr<Sender> sender,
                                      std::atomic<bool>& stop,
-                                     const StepCallback& on_step) {
+                                     const StepCallback& on_step,
+                                     const CancelCheck& external_cancel) {
     std::vector<StepResult> results;
     results.reserve(sc.steps.size());
 
@@ -266,7 +273,7 @@ std::vector<StepResult> run_scenario(const ScenarioConfig& sc,
         if (stop.load()) break;
 
         auto r = run_step(sc.url, sc.steps[i], static_cast<int>(i + 1),
-                          sc, sender, stop);
+                          sc, sender, stop, external_cancel);
         if (!r) break;
 
         if (on_step) on_step(*r);

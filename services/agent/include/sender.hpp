@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -13,7 +14,9 @@ class Sender {
 public:
     virtual ~Sender() = default;
 
-    virtual SendOutcome send(const std::string& target, long timeout_ms) = 0;
+    virtual SendOutcome send(const std::string& target,
+                             long timeout_ms,
+                             std::atomic<bool>& stop) = 0;
 };
 
 std::shared_ptr<Sender> make_http_sender();

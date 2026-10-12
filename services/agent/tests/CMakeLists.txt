@@ -13,3 +13,18 @@ add_test(NAME percentiles COMMAND load_agent_tests_percentiles)
 add_executable(load_agent_tests_workers test_workers.cpp)
 target_link_libraries(load_agent_tests_workers PRIVATE load_agent_core)
 add_test(NAME workers COMMAND load_agent_tests_workers)
+
+add_executable(load_agent_tests_grpc_run test_grpc_run.cpp)
+target_link_libraries(load_agent_tests_grpc_run PRIVATE
+    load_agent_core agent_grpc agent_proto gRPC::grpc++)
+add_test(NAME grpc_run COMMAND load_agent_tests_grpc_run)
+
+add_executable(load_agent_tests_grpc_stop test_grpc_stop.cpp)
+target_link_libraries(load_agent_tests_grpc_stop PRIVATE
+    load_agent_core agent_grpc agent_proto gRPC::grpc++)
+add_test(NAME grpc_stop COMMAND load_agent_tests_grpc_stop)
+
+add_executable(load_agent_tests_grpc_errors test_grpc_errors.cpp)
+target_link_libraries(load_agent_tests_grpc_errors PRIVATE
+    load_agent_core agent_grpc agent_proto gRPC::grpc++)
+add_test(NAME grpc_errors COMMAND load_agent_tests_grpc_errors)

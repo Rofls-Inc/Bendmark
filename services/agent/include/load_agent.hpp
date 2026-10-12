@@ -25,6 +25,7 @@ struct ScenarioResult {
 };
 
 using StepCallback = std::function<void(const StepResult&)>;
+using CancelCheck = std::function<bool()>;
 
 int compute_workers(const StepConfig& step, const ScenarioConfig& opt);
 
@@ -33,11 +34,13 @@ std::optional<StepResult> run_step(const std::string& url,
                                    int index,
                                    const ScenarioConfig& opt,
                                    std::shared_ptr<Sender> sender,
-                                   std::atomic<bool>& stop);
+                                   std::atomic<bool>& stop,
+                                   const CancelCheck& external_cancel = {});
 
 std::vector<StepResult> run_scenario(const ScenarioConfig& sc,
                                      std::shared_ptr<Sender> sender,
                                      std::atomic<bool>& stop,
-                                     const StepCallback& on_step);
+                                     const StepCallback& on_step,
+                                     const CancelCheck& external_cancel = {});
 
 bool write_result_json(const std::string& path, const ScenarioResult& result);

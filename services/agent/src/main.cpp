@@ -1,10 +1,15 @@
 #include "load_agent.hpp"
 #include "sender.hpp"
+#include "agent_service.hpp"
+
+#include <grpcpp/grpcpp.h>
 
 #include <curl/curl.h>
 #include <atomic>
 #include <cmath>
+#include <fstream>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -17,13 +22,15 @@ void print_usage(const char* prog) {
         << "Usage:\n"
         << "  " << prog << " <URL> <rate_per_sec> <duration_sec> [options]\n"
         << "  " << prog << " <URL> --steps RATE:DURATION[,RATE:DURATION...] [options]\n"
+        << "  " << prog << " --listen ADDR [options]\n"
         << "Options:\n"
+        << "  --listen ADDR          gRPC listen address (default 0.0.0.0:50051)\n"
         << "  --steps LIST           scenario steps, e.g. 100:45,200:45.5\n"
-        << "  --name NAME            scenario name (default cli)\n"
+        << "  --name NAME            scenario name for CLI JSON (default cli)\n"
         << "  --timeout MS           per-request timeout in ms (default 5000)\n"
         << "  --max-concurrency N    cap for auto-computed worker count (default 1000)\n"
         << "  --concurrency N        override worker count (default: auto)\n"
-        << "  --json FILE            write result.json (default stdout)\n";
+        << "  --json FILE            write result.json (CLI only; default stdout)\n";
 }
 
 double parse_positive(const std::string& s, const std::string& ctx) {
@@ -71,14 +78,7 @@ std::vector<StepConfig> parse_steps(const std::string& s) {
     return steps;
 }
 
-} // namespace
-
-int main(int argc, char** argv) {
-    if (argc < 3) {
-        print_usage(argv[0]);
-        return 1;
-    }
-
+int run_cli(int argc, char** argv) {
     std::string url = argv[1];
     std::string steps_arg;
     std::string name = "cli";
@@ -160,23 +160,9 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    curl_global_init(CURL_GLOBAL_DEFAULT);
     auto sender = make_http_sender();
-
     std::atomic<bool> stop{false};
-    std::vector<StepResult> steps;
-
-    try {
-        steps = run_scenario(sc, sender, stop, nullptr);
-    } catch (const std::exception& e) {
-        sender.reset();
-        curl_global_cleanup();
-        std::cerr << "Scenario failed: " << e.what() << "\n";
-        return 4;
-    }
- 
-    sender.reset();
-    curl_global_cleanup();
+    std::vector<StepResult> steps = run_scenario(sc, sender, stop, nullptr);
 
     ScenarioResult result;
     result.scenario_name = name;
@@ -197,9 +183,7 @@ int main(int argc, char** argv) {
     }
 
     long long total_skipped = 0;
-    for (const auto& s : steps) {
-        total_skipped += s.skipped_count;
-    }
+    for (const auto& s : steps) total_skipped += s.skipped_count;
 
     if (total_skipped > 0) {
         std::cerr << "[warn] " << total_skipped
@@ -209,4 +193,90 @@ int main(int argc, char** argv) {
     }
 
     return 0;
+}
+
+int run_grpc(int argc, char** argv) {
+    std::string listen_addr = "0.0.0.0:50051";
+    long timeout_ms = 5000;
+    int max_concurrency = 1000;
+    int concurrency_override = 0;
+
+    try {
+        for (int i = 1; i < argc; ++i) {     // <-- было 2, стало 1
+            std::string a = argv[i];
+            if (a == "--listen" && i + 1 < argc) {
+                listen_addr = argv[++i];
+            } else if (a == "--timeout" && i + 1 < argc) {
+                timeout_ms = std::stol(argv[++i]);
+            } else if (a == "--max-concurrency" && i + 1 < argc) {
+                max_concurrency = std::stoi(argv[++i]);
+            } else if (a == "--concurrency" && i + 1 < argc) {
+                concurrency_override = std::stoi(argv[++i]);
+            } else {
+                std::cerr << "Unknown option: " << a << "\n";
+                print_usage(argv[0]);
+                return 1;
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Invalid arguments: " << e.what() << "\n";
+        return 1;
+    }
+
+    if (timeout_ms <= 0 || max_concurrency <= 0) {
+        std::cerr << "timeout and max-concurrency must be > 0\n";
+        return 2;
+    }
+    if (concurrency_override < 0) {
+        std::cerr << "concurrency override must be >= 0\n";
+        return 2;
+    }
+
+    AgentOptions options;
+    options.timeout_ms = timeout_ms;
+    options.max_concurrency = max_concurrency;
+    options.concurrency_override = concurrency_override;
+
+    auto core = std::make_shared<AgentCore>(
+        []() { return make_http_sender(); }, options);
+    AgentServiceImpl service(core);
+
+    grpc::ServerBuilder builder;
+    builder.AddListeningPort(listen_addr, grpc::InsecureServerCredentials());
+    builder.RegisterService(&service);
+    auto server = builder.BuildAndStart();
+
+    if (!server) {
+        std::cerr << "Failed to start gRPC server on " << listen_addr << "\n";
+        return 1;
+    }
+
+    std::cerr << "load_agent listening on " << listen_addr << "\n";
+    server->Wait();
+    return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    // Режим выбирается по первому аргументу: URL (не флаг) — CLI,
+    // иначе gRPC-сервер.
+    bool cli_mode = (argv[1][0] != '-');
+
+    if (cli_mode && argc < 3) {
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    int rc = cli_mode ? run_cli(argc, argv) : run_grpc(argc, argv);
+
+    curl_global_cleanup();
+    return rc;
 }
