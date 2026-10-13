@@ -1,0 +1,29 @@
+name: injector
+
+on:
+  pull_request:
+    paths:
+      - "services/injector/**"
+      - ".github/workflows/injector.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "services/injector/**"
+      - ".github/workflows/injector.yml"
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: services/injector
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: services/injector/go.mod
+          cache: false
+      - run: go test ./...
+      - run: go vet ./...

@@ -1,0 +1,287 @@
+#include "load_agent.hpp"
+#include "sender.hpp"
+#include "agent_service.hpp"
+
+#include <grpcpp/grpcpp.h>
+
+#include <curl/curl.h>
+#include <atomic>
+#include <cmath>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace {
+
+void print_usage(const char* prog) {
+    std::cout
+        << "Usage:\n"
+        << "  " << prog << " <URL> <rate_per_sec> <duration_sec> [options]\n"
+        << "  " << prog << " <URL> --steps RATE:DURATION[,RATE:DURATION...] [options]\n"
+        << "  " << prog << " --listen ADDR [options]\n"
+        << "Options:\n"
+        << "  --listen ADDR          gRPC listen address (default 0.0.0.0:50051)\n"
+        << "  --steps LIST           scenario steps, e.g. 100:45,200:45.5\n"
+        << "  --name NAME            scenario name for CLI JSON (default cli)\n"
+        << "  --timeout MS           per-request timeout in ms (default 5000)\n"
+        << "  --max-concurrency N    cap for auto-computed worker count (default 1000)\n"
+        << "  --concurrency N        override worker count (default: auto)\n"
+        << "  --json FILE            write result.json (CLI only; default stdout)\n";
+}
+
+double parse_positive(const std::string& s, const std::string& ctx) {
+    size_t pos = 0;
+    double v = std::stod(s, &pos);
+
+    if (pos != s.size()) {
+        throw std::runtime_error("trailing characters in " + ctx + ": " + s);
+    }
+    if (!std::isfinite(v)) {
+        throw std::runtime_error("expected finite number > 0 in " + ctx + ": " + s);
+    }
+    if (v <= 0) {
+        throw std::runtime_error("expected number > 0 in " + ctx + ": " + s);
+    }
+    return v;
+}
+
+std::vector<StepConfig> parse_steps(const std::string& s) {
+    std::vector<StepConfig> steps;
+    std::stringstream ss(s);
+    std::string pair;
+
+    while (std::getline(ss, pair, ',')) {
+        if (pair.empty()) continue;
+
+        auto colon = pair.find(':');
+        if (colon == std::string::npos) {
+            throw std::runtime_error("bad step (expected RATE:DURATION): " + pair);
+        }
+
+        StepConfig step;
+        step.target_rps = parse_positive(pair.substr(0, colon),
+                                         "step rate in " + pair);
+        step.duration_seconds = parse_positive(pair.substr(colon + 1),
+                                               "step duration in " + pair);
+
+        steps.push_back(step);
+    }
+
+    if (steps.empty()) {
+        throw std::runtime_error("--steps is empty");
+    }
+
+    return steps;
+}
+
+int run_cli(int argc, char** argv) {
+    std::string url = argv[1];
+    std::string steps_arg;
+    std::string name = "cli";
+    long timeout_ms = 5000;
+    int max_concurrency = 1000;
+    int concurrency_override = 0;
+    std::string json_file;
+
+    bool positional_done = false;
+    double pos_rate = 0.0;
+    double pos_duration = 0.0;
+
+    try {
+        int i = 2;
+
+        if (i < argc && argv[i][0] != '-') {
+            pos_rate = parse_positive(argv[i++], "rate");
+            if (i < argc && argv[i][0] != '-') {
+                pos_duration = parse_positive(argv[i++], "duration");
+            }
+            positional_done = true;
+        }
+
+        for (; i < argc; ++i) {
+            std::string a = argv[i];
+            if (a == "--steps" && i + 1 < argc) {
+                steps_arg = argv[++i];
+            } else if (a == "--name" && i + 1 < argc) {
+                name = argv[++i];
+            } else if (a == "--timeout" && i + 1 < argc) {
+                timeout_ms = std::stol(argv[++i]);
+            } else if (a == "--max-concurrency" && i + 1 < argc) {
+                max_concurrency = std::stoi(argv[++i]);
+            } else if (a == "--concurrency" && i + 1 < argc) {
+                concurrency_override = std::stoi(argv[++i]);
+            } else if (a == "--json" && i + 1 < argc) {
+                json_file = argv[++i];
+            } else {
+                std::cerr << "Unknown option: " << a << "\n";
+                print_usage(argv[0]);
+                return 1;
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Invalid arguments: " << e.what() << "\n";
+        return 1;
+    }
+
+    ScenarioConfig sc;
+    sc.url = url;
+    sc.timeout_ms = timeout_ms;
+    sc.max_concurrency = max_concurrency;
+    sc.concurrency_override = concurrency_override;
+
+    try {
+        if (!steps_arg.empty()) {
+            sc.steps = parse_steps(steps_arg);
+        } else if (positional_done && pos_duration > 0) {
+            StepConfig single;
+            single.target_rps = pos_rate;
+            single.duration_seconds = pos_duration;
+            sc.steps.push_back(single);
+        } else {
+            std::cerr << "Either positional <rate> <duration> or --steps is required\n";
+            print_usage(argv[0]);
+            return 1;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Invalid steps: " << e.what() << "\n";
+        return 1;
+    }
+
+    if (sc.timeout_ms <= 0 || sc.max_concurrency <= 0) {
+        std::cerr << "timeout and max-concurrency must be > 0\n";
+        return 2;
+    }
+    if (sc.concurrency_override < 0) {
+        std::cerr << "concurrency override must be >= 0\n";
+        return 2;
+    }
+
+    auto sender = make_http_sender();
+    std::atomic<bool> stop{false};
+    std::vector<StepResult> steps;
+
+    try {
+        steps = run_scenario(sc, sender, stop, nullptr);
+    } catch (const std::exception& e) {
+        std::cerr << "Scenario failed: " << e.what() << "\n";
+        return 4;
+    }
+
+    ScenarioResult result;
+    result.scenario_name = name;
+    result.status = "completed";
+    result.steps = steps;
+
+    if (!json_file.empty()) {
+        if (!write_result_json(json_file, result)) {
+            std::cerr << "Cannot write " << json_file << "\n";
+            return 3;
+        }
+        std::cerr << "JSON written to " << json_file << "\n";
+    } else {
+        if (!write_result_json("-", result)) {
+            std::cerr << "Cannot write JSON to stdout\n";
+            return 3;
+        }
+    }
+
+    long long total_skipped = 0;
+    for (const auto& s : steps) total_skipped += s.skipped_count;
+
+    if (total_skipped > 0) {
+        std::cerr << "[warn] " << total_skipped
+                  << " planned requests were skipped across steps: not enough workers.\n"
+                  << "[warn] The analyzer rejects steps with skipped_count > 0. "
+                  << "Increase --max-concurrency or --timeout.\n";
+    }
+
+    return 0;
+}
+
+int run_grpc(int argc, char** argv) {
+    std::string listen_addr = "0.0.0.0:50051";
+    long timeout_ms = 5000;
+    int max_concurrency = 1000;
+    int concurrency_override = 0;
+
+    try {
+        for (int i = 1; i < argc; ++i) {
+            std::string a = argv[i];
+            if (a == "--listen" && i + 1 < argc) {
+                listen_addr = argv[++i];
+            } else if (a == "--timeout" && i + 1 < argc) {
+                timeout_ms = std::stol(argv[++i]);
+            } else if (a == "--max-concurrency" && i + 1 < argc) {
+                max_concurrency = std::stoi(argv[++i]);
+            } else if (a == "--concurrency" && i + 1 < argc) {
+                concurrency_override = std::stoi(argv[++i]);
+            } else {
+                std::cerr << "Unknown option: " << a << "\n";
+                print_usage(argv[0]);
+                return 1;
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Invalid arguments: " << e.what() << "\n";
+        return 1;
+    }
+
+    if (timeout_ms <= 0 || max_concurrency <= 0) {
+        std::cerr << "timeout and max-concurrency must be > 0\n";
+        return 2;
+    }
+    if (concurrency_override < 0) {
+        std::cerr << "concurrency override must be >= 0\n";
+        return 2;
+    }
+
+    AgentOptions options;
+    options.timeout_ms = timeout_ms;
+    options.max_concurrency = max_concurrency;
+    options.concurrency_override = concurrency_override;
+
+    auto core = std::make_shared<AgentCore>(
+        []() { return make_http_sender(); }, options);
+    AgentServiceImpl service(core);
+
+    grpc::ServerBuilder builder;
+    builder.AddListeningPort(listen_addr, grpc::InsecureServerCredentials());
+    builder.RegisterService(&service);
+    auto server = builder.BuildAndStart();
+
+    if (!server) {
+        std::cerr << "Failed to start gRPC server on " << listen_addr << "\n";
+        return 1;
+    }
+
+    std::cerr << "load_agent listening on " << listen_addr << "\n";
+    server->Wait();
+    return 0;
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    bool cli_mode = (argv[1][0] != '-');
+
+    if (cli_mode && argc < 3) {
+        print_usage(argv[0]);
+        return 1;
+    }
+
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+
+    int rc = cli_mode ? run_cli(argc, argv) : run_grpc(argc, argv);
+
+    curl_global_cleanup();
+    return rc;
+}
