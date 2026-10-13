@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ApiError, getRun } from '../api/client'
 import type { Run } from '../api/types'
-import { DEMO_RUN_ID, demoRun } from '../demo/demoRun'
+import { demoRuns, isDemoRun } from '../demo/demoRun'
+import { forgetRun, rememberRun } from './recent'
 import { needsPolling } from './view'
 
 export const POLL_INTERVAL_MS = 2000
@@ -12,12 +13,18 @@ export type RunState =
   // offline — последний опрос не удался, на экране прошлый ответ
   | { kind: 'ready'; run: Run; offline: boolean }
 
-// Опрашивает GET /runs/{id}, пока прогон не завершится и анализатор не ответит
-export function useRun(id: string): RunState {
+// Опрашивает GET /runs/{id}, пока прогон не завершится и анализатор не ответит.
+// applyRun сразу показывает прогон из другого ответа (например, из POST /stop)
+// и возобновляет опрос, если он ещё нужен.
+export function useRun(id: string): { state: RunState; applyRun: (run: Run) => void } {
   const [state, setState] = useState<{ id: string; value: RunState }>({ id, value: { kind: 'loading' } })
+  // Меняется, когда нужно перезапустить опрос после applyRun
+  const [generation, setGeneration] = useState(0)
+  // Демо собирается один раз на id: у живого демо время старта считается от момента открытия
+  const demo = useMemo(() => (isDemoRun(id) ? demoRuns[id]() : null), [id])
 
   useEffect(() => {
-    if (id === DEMO_RUN_ID)
+    if (isDemoRun(id))
       return
 
     const controller = new AbortController()
@@ -27,6 +34,7 @@ export function useRun(id: string): RunState {
       try {
         const run = await getRun(id, controller.signal)
         setState({ id, value: { kind: 'ready', run, offline: false } })
+        rememberRun({ ...run, name: run.scenario.name })
         if (needsPolling(run))
           timer = setTimeout(poll, POLL_INTERVAL_MS)
       } catch (e) {
@@ -35,6 +43,8 @@ export function useRun(id: string): RunState {
         const message = e instanceof Error ? e.message : 'Не удалось получить прогон'
         // Прогона нет (например, координатор перезапустился и потерял его): повторять бесполезно
         if (e instanceof ApiError && e.status === 404) {
+          // Запись в «Недавних» больше никуда не ведёт
+          forgetRun(id)
           setState({ id, value: { kind: 'error', message } })
           return
         }
@@ -51,10 +61,18 @@ export function useRun(id: string): RunState {
       controller.abort()
       clearTimeout(timer)
     }
+  }, [id, generation])
+
+  const applyRun = useCallback((run: Run) => {
+    if (run.id !== id)
+      return
+    setState({ id, value: { kind: 'ready', run, offline: false } })
+    rememberRun({ ...run, name: run.scenario.name })
+    setGeneration((g) => g + 1)
   }, [id])
 
-  if (id === DEMO_RUN_ID)
-    return { kind: 'ready', run: demoRun, offline: false }
+  if (demo)
+    return { state: { kind: 'ready', run: demo, offline: false }, applyRun }
   // Пока не пришёл ответ для нового id, не показываем прогон от прошлого
-  return state.id === id ? state.value : { kind: 'loading' }
+  return { state: state.id === id ? state.value : { kind: 'loading' }, applyRun }
 }

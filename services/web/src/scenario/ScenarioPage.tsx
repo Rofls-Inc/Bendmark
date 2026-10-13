@@ -1,10 +1,13 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
-import { useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 import { ValidationError, createRun } from '../api/client'
+import type { Scenario } from '../api/types'
+import { rememberRun } from '../run/recent'
 import { formatDuration, formatNumber } from '../run/view'
 import {
   buildSteps,
   defaultForm,
+  formFromScenario,
   mapServerErrors,
   toScenario,
   totalSeconds,
@@ -15,7 +18,13 @@ import {
 
 export function ScenarioPage() {
   const navigate = useNavigate()
-  const [form, setForm] = useState<ScenarioForm>(defaultForm)
+  const location = useLocation()
+  // «Повторить» из отчёта передаёт сценарий прогона
+  const [initial] = useState(() => {
+    const scenario = (location.state as { scenario?: Scenario } | null)?.scenario
+    return scenario ? formFromScenario(scenario) : null
+  })
+  const [form, setForm] = useState<ScenarioForm>(initial?.form ?? defaultForm)
   const [serverErrors, setServerErrors] = useState<FormErrors>({})
   const [submitting, setSubmitting] = useState(false)
 
@@ -35,7 +44,9 @@ export function ScenarioPage() {
     setSubmitting(true)
     setServerErrors({})
     try {
-      const run = await createRun(toScenario(form, built.steps))
+      const scenario = toScenario(form, built.steps)
+      const run = await createRun(scenario)
+      rememberRun({ id: run.id, status: run.status, name: scenario.name, created_at: new Date().toISOString() })
       navigate(`/runs/${run.id}`)
     } catch (err) {
       setServerErrors(err instanceof ValidationError
@@ -58,6 +69,11 @@ export function ScenarioPage() {
       </header>
 
       {errors.form && <p className="alert">{errors.form}</p>}
+      {initial && !initial.exact && (
+        <p className="note">
+          Ступени прошлого прогона не укладываются в «от / до / шаг»: форма заполнена по первой и последней ступени.
+        </p>
+      )}
 
       <div className="grid-2">
         <section className="panel">
