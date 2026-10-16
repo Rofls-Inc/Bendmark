@@ -1,4 +1,10 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# protoc из пакета Grpc.Tools падает на linux/arm64 (Docker на Apple Silicon, код 139),
+# поэтому берём системный, как в образе агента. Плагин grpc_csharp_plugin остаётся из Grpc.Tools
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+ENV PROTOBUF_PROTOC=/usr/bin/protoc
 WORKDIR /src
 # Сначала только csproj: пока зависимости не меняются, restore берётся из кэша
 COPY services/coordinator/Bendmark.Coordinator.csproj services/coordinator/
