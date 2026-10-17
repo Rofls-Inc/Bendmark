@@ -61,3 +61,22 @@ export interface Run {
   // null, пока прогон не завершён, и у failed или без ступеней
   analysis: Analysis | null
 }
+
+// Строка списка GET /runs: без сценария и ступеней
+export interface RunSummary {
+  id: string
+  scenario_name: string
+  status: RunStatus
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+  // Из analysis прогона, null, пока анализа нет
+  analysis_status: AnalysisStatus | null
+  limit_rps: number | null
+}
+
+export interface RunList {
+  runs: RunSummary[]
+  // id для следующей страницы (?before=), null - страниц больше нет
+  next_before: string | null
+}

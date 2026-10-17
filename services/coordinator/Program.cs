@@ -29,6 +29,11 @@ builder.Services.AddOptions<AnalyzerOptions>()
         "Analyzer:TimeoutSeconds должен быть конечным числом больше нуля")
     .ValidateOnStart();
 
+builder.Services.AddOptions<StorageOptions>()
+    .Bind(builder.Configuration.GetSection(StorageOptions.SectionName))
+    .Validate(o => !string.IsNullOrWhiteSpace(o.Path), "Storage:Path - путь к файлу SQLite")
+    .ValidateOnStart();
+
 builder.Services.AddSingleton<RunStore>();
 builder.Services.AddHealthChecks();
 builder.Services.AddSingleton<RunQueue>();
@@ -65,6 +70,26 @@ app.MapPost("/runs", async (HttpRequest request, RunStore store, RunQueue queue)
     var run = store.Create(scenario!);
     queue.Enqueue(run.Id);
     return Results.Created($"/runs/{run.Id}", new { run.Id, run.Status });
+});
+
+// Список прогонов от новых к старым; следующая страница - ?before=<next_before>
+const int DefaultPageSize = 20;
+const int MaxPageSize = 100;
+app.MapGet("/runs", (int? limit, Guid? before, RunStore store) =>
+{
+    var pageSize = limit ?? DefaultPageSize;
+    if (pageSize is < 1 or > MaxPageSize)
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["limit"] = [$"Должно быть от 1 до {MaxPageSize}"],
+        });
+
+    return store.List(pageSize, before) is { } page
+        ? Results.Ok(page)
+        : Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["before"] = ["Прогона с таким id нет"],
+        });
 });
 
 app.MapGet("/runs/{id:guid}", (Guid id, RunStore store) =>

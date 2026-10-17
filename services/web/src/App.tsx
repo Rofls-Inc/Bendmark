@@ -25,17 +25,16 @@ export function App() {
         <Link to="/" className="brand">Bendmark</Link>
         <NavLink to="/" end className="new-run">Новый прогон</NavLink>
 
-        {recent.length > 0 && (
-          <>
-            <span className="nav-group">Недавние</span>
-            {recent.map((run) => (
-              <NavLink key={run.id} to={`/runs/${run.id}`} className="recent" title={run.id}>
-                <span className={`dot status-${run.status}`} aria-hidden />
-                <span className="recent-name">{run.name}</span>
-              </NavLink>
-            ))}
-          </>
-        )}
+        <span className="nav-group">Недавние</span>
+        {recent.kind === 'loading' && <span className="nav-note">Загружаем…</span>}
+        {recent.kind === 'error' && <span className="nav-note">{recent.message}</span>}
+        {recent.kind === 'ready' && recent.runs.length === 0 && <span className="nav-note">Прогонов пока нет</span>}
+        {recent.kind === 'ready' && recent.runs.map((run) => (
+          <NavLink key={run.id} to={`/runs/${run.id}`} className="recent" title={run.id}>
+            <span className={`dot status-${run.status}`} aria-hidden />
+            <span className="recent-name">{run.scenario_name}</span>
+          </NavLink>
+        ))}
 
         <span className="nav-group">Демо</span>
         {demos.map((demo) => (

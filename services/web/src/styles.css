@@ -97,6 +97,12 @@ h2 {
   text-transform: uppercase;
 }
 
+.nav-note {
+  padding: 4px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .sidebar .recent {
   display: flex;
   align-items: center;
