@@ -30,6 +30,8 @@ describe('боковая панель «Недавние»', () => {
     expect(link.getAttribute('href')).toBe('/runs/r2')
     expect(link.querySelector('.status-running')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'abstock-home-ramp' }).querySelector('.status-completed')).toBeTruthy()
+    expect(link.textContent).toContain('идёт')
+    expect(screen.getByRole('link', { name: 'abstock-home-ramp' }).textContent).toContain('350')
     expect(calls[0]).toMatchObject({ method: 'GET', url: '/api/runs?limit=10' })
   })
 

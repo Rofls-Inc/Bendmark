@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts'
 import type { StepResult } from '../api/types'
+import { axisProps, gridProps, legendProps, thresholdLabel, tooltipProps } from './chartStyle'
 import { P99_THRESHOLD_MS, latencyAxis, rpsAxis, toChartPoints, toLatencyPoints } from '../run/view'
 
 interface Props {
@@ -18,7 +19,6 @@ interface Props {
   plannedTargets: number[]
 }
 
-const tooltipStyle = { background: 'var(--panel)', border: '1px solid var(--border)' }
 const tooltipLabel = (value: unknown) => `Нагрузка ${value} запр/с`
 
 function xAxis(plannedTargets: number[]) {
@@ -28,8 +28,7 @@ function xAxis(plannedTargets: number[]) {
       type="number"
       domain={[Math.min(...plannedTargets), Math.max(...plannedTargets)]}
       ticks={plannedTargets}
-      stroke="var(--muted)"
-      tickLine={false}
+      {...axisProps}
     />
   )
 }
@@ -42,20 +41,20 @@ export function LatencyChart({ steps, plannedTargets }: Props) {
   return (
     <ResponsiveContainer width="100%" height={260}>
       <LineChart data={points} margin={{ top: 16, right: 16, bottom: 8, left: 0 }}>
-        <CartesianGrid stroke="var(--grid)" vertical={false} />
+        <CartesianGrid {...gridProps} />
         {xAxis(plannedTargets)}
-        <YAxis scale="log" domain={axis.domain} ticks={axis.ticks} stroke="var(--muted)" tickLine={false} width={48} />
-        <Tooltip contentStyle={tooltipStyle} labelFormatter={tooltipLabel} />
-        <Legend />
+        <YAxis scale="log" domain={axis.domain} ticks={axis.ticks} {...axisProps} width={48} />
+        <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
+        <Legend {...legendProps} />
         <ReferenceLine
           y={P99_THRESHOLD_MS}
-          stroke="var(--red)"
+          stroke="var(--bad)"
           strokeDasharray="4 4"
-          label={{ value: `порог ${P99_THRESHOLD_MS} мс`, fill: 'var(--red)', position: 'insideTopLeft' }}
+          label={{ value: `порог ${P99_THRESHOLD_MS} мс`, ...thresholdLabel }}
         />
-        <Line dataKey="p50" name="p50, мс" stroke="var(--fg)" strokeWidth={1.5} isAnimationActive={false} />
-        <Line dataKey="p90" name="p90, мс" stroke="var(--blue)" strokeWidth={1.5} isAnimationActive={false} />
-        <Line dataKey="p99" name="p99, мс" stroke="var(--pink)" strokeWidth={2} isAnimationActive={false} />
+        <Line dataKey="p50" name="p50, мс" stroke="var(--series-p50)" strokeWidth={1.5} isAnimationActive={false} />
+        <Line dataKey="p90" name="p90, мс" stroke="var(--series-p90)" strokeWidth={1.5} isAnimationActive={false} />
+        <Line dataKey="p99" name="p99, мс" stroke="var(--series-p99)" strokeWidth={2} isAnimationActive={false} />
       </LineChart>
     </ResponsiveContainer>
   )
@@ -70,16 +69,16 @@ export function ThroughputChart({ steps, plannedTargets }: Props) {
   return (
     <ResponsiveContainer width="100%" height={260}>
       <LineChart margin={{ top: 16, right: 16, bottom: 8, left: 0 }}>
-        <CartesianGrid stroke="var(--grid)" vertical={false} />
+        <CartesianGrid {...gridProps} />
         {xAxis(plannedTargets)}
-        <YAxis domain={axis.domain} ticks={axis.ticks} stroke="var(--muted)" tickLine={false} width={48} />
-        <Tooltip contentStyle={tooltipStyle} labelFormatter={tooltipLabel} />
-        <Legend />
+        <YAxis domain={axis.domain} ticks={axis.ticks} {...axisProps} width={48} />
+        <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
+        <Legend {...legendProps} />
         <Line
           data={planned}
           dataKey="target"
           name="целевая нагрузка"
-          stroke="var(--muted)"
+          stroke="var(--series-target)"
           strokeDasharray="3 3"
           dot={false}
           isAnimationActive={false}
@@ -88,7 +87,7 @@ export function ThroughputChart({ steps, plannedTargets }: Props) {
           data={points}
           dataKey="throughput"
           name="пропускная, запр/с"
-          stroke="var(--green)"
+          stroke="var(--series-throughput)"
           strokeWidth={2}
           isAnimationActive={false}
         />
