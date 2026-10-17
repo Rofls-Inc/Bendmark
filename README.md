@@ -347,7 +347,7 @@ docker compose up --build
 Для быстрой проверки уменьшите длительность ступени или число ступеней в форме.
 Тот же прогон без интерфейса — запросами из [README координатора](services/coordinator/README.md#проверка-через-curl).
 
-Координатор хранит прогоны в памяти: после `docker compose restart coordinator` или `down` они пропадают.
+Прогоны хранятся в SQLite в томе `coordinator-data` и переживают `docker compose restart coordinator` и `down`; список - `GET /runs` у координатора.
 
 ### Агент и анализатор из командной строки
 
@@ -360,7 +360,7 @@ docker compose run --rm agent http://abstock:8080/ 50 10
 docker compose run --rm analyzer-cli testdata/results/limit-found.json
 ```
 
-Остановить всё: `docker compose down`. База ABStock остаётся в томе `abstock-data`, удалить её можно через `docker compose down -v`.
+Остановить всё: `docker compose down`. База ABStock и прогоны координатора остаются в томах `abstock-data` и `coordinator-data`, удалить их можно через `docker compose down -v`.
 
 ---
 

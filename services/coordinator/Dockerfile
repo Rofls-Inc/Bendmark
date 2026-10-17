@@ -18,6 +18,9 @@ RUN dotnet publish services/coordinator/Bendmark.Coordinator.csproj \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app/publish .
+# Каталог базы (Storage:Path = data/runs.db). Новый том Docker берёт владельца из образа,
+# поэтому пользователь app может писать в него
+RUN mkdir -p /app/data && chown app:app /app/data
 USER app
 ENV ASPNETCORE_HTTP_PORTS=5080
 EXPOSE 5080
