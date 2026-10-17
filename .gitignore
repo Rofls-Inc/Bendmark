@@ -10,6 +10,7 @@ cmake-build-*/
 bin/
 obj/
 *.user
+/services/coordinator/data/
 
 # Python
 __pycache__/
