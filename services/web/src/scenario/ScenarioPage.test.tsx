@@ -96,4 +96,18 @@ describe('ScenarioPage', () => {
     expect(screen.getByDisplayValue('5')).toBeTruthy()
     expect(screen.queryByText(/не укладываются/)).toBeNull()
   })
+
+  it('предупреждение не блокирует запуск, ошибка блокирует', async () => {
+    mockFetch(() => json(200, { runs: [], next_before: null }))
+    renderPage()
+
+    const url = screen.getByDisplayValue('http://abstock:8080/')
+    await userEvent.clear(url)
+    await userEvent.type(url, 'http://localhost:5062/')
+    expect(screen.getByText(/localhost здесь — это сам агент/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Запустить' }) as HTMLButtonElement).disabled).toBe(false)
+
+    await userEvent.clear(screen.getByDisplayValue('45'))
+    expect((screen.getByRole('button', { name: 'Запустить' }) as HTMLButtonElement).disabled).toBe(true)
+  })
 })

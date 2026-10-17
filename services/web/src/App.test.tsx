@@ -31,6 +31,8 @@ describe('боковая панель «Недавние»', () => {
     expect(link.getAttribute('href')).toBe('/runs/r2')
     expect(link.querySelector('.status-running')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'abstock-home-ramp' }).querySelector('.status-completed')).toBeTruthy()
+    expect(link.textContent).toContain('идёт')
+    expect(screen.getByRole('link', { name: 'abstock-home-ramp' }).textContent).toContain('350')
     expect(calls[0]).toMatchObject({ method: 'GET', url: '/api/runs?limit=10' })
   })
 
@@ -59,17 +61,5 @@ describe('боковая панель «Недавние»', () => {
     up = true
     await userEvent.click(screen.getByRole('button', { name: 'Повторить' }))
     expect(await screen.findByText('Прогонов пока нет')).toBeTruthy()
-  })
-
-  it('на узком экране лишние прогоны помечены для скрытия', async () => {
-    const runs = Array.from({ length: 7 }, (_, i) => ({
-      id: `r${i}`, scenario_name: `s${i}`, status: 'completed', created_at: '2026-10-09T12:00:00Z',
-      started_at: null, finished_at: null, analysis_status: null, limit_rps: null,
-    }))
-    mockFetch(() => json(200, { runs, next_before: null }))
-    renderApp()
-
-    expect((await screen.findByRole('link', { name: 's4' })).classList.contains('recent-extra')).toBe(false)
-    expect(screen.getByRole('link', { name: 's5' }).classList.contains('recent-extra')).toBe(true)
   })
 })

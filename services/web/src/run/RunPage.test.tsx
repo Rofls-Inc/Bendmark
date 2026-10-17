@@ -214,4 +214,16 @@ describe('RunPage', () => {
     await user().click(await screen.findByRole('button', { name: 'Повторить' }))
     expect(screen.getByText('форма сценария')).toBeTruthy()
   })
+
+  it('отчёт начинается с карточки предела', async () => {
+    mockFetch((call) => call.url.startsWith('/api/runs?')
+      ? json(200, { runs: [], next_before: null })
+      : json(200, { ...demoRun, id: ID }))
+    renderPage()
+
+    const card = await screen.findByRole('region', { name: 'Предел' })
+    expect(card.textContent).toContain('350')
+    expect(card.textContent).toContain('Отказ на нагрузке')
+    expect(screen.getByRole('heading', { name: 'Диагноз' })).toBeTruthy()
+  })
 })

@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts'
 import type { StepResult } from '../api/types'
+import { axisProps, gridProps, legendProps, thresholdLabel, tooltipProps } from './chartStyle'
 import { P99_THRESHOLD_MS, p99Axis, rpsAxis, toChartPoints } from '../run/view'
 
 interface Props {
@@ -26,23 +27,21 @@ export function PerformanceChart({ steps, limitRps }: Props) {
   return (
     <ResponsiveContainer width="100%" height={320}>
       <ComposedChart data={points} margin={{ top: 16, right: 8, bottom: 8, left: 0 }}>
-        <CartesianGrid stroke="var(--grid)" vertical={false} />
+        <CartesianGrid {...gridProps} />
         <XAxis
           dataKey="target"
           type="number"
           domain={['dataMin', 'dataMax']}
           ticks={points.map((p) => p.target)}
-          stroke="var(--muted)"
-          tickLine={false}
+          {...axisProps}
         />
         <YAxis
           yAxisId="rps"
           domain={rps.domain}
           ticks={rps.ticks}
-          stroke="var(--muted)"
-          tickLine={false}
+          {...axisProps}
           width={56}
-          label={{ value: 'запр/с', angle: -90, position: 'insideLeft', fill: 'var(--muted)' }}
+          label={{ value: 'запр/с', angle: -90, position: 'insideLeft', fill: 'var(--text-3)', fontSize: 11 }}
         />
         <YAxis
           yAxisId="p99"
@@ -50,36 +49,35 @@ export function PerformanceChart({ steps, limitRps }: Props) {
           scale="log"
           domain={p99.domain}
           ticks={p99.ticks}
-          stroke="var(--muted)"
-          tickLine={false}
+          {...axisProps}
           width={56}
-          label={{ value: 'p99, мс (лог)', angle: 90, position: 'insideRight', fill: 'var(--muted)' }}
+          label={{ value: 'p99, мс (лог)', angle: 90, position: 'insideRight', fill: 'var(--text-3)', fontSize: 11 }}
         />
         <Tooltip
-          contentStyle={{ background: 'var(--panel)', border: '1px solid var(--border)' }}
+          {...tooltipProps}
           labelFormatter={(value) => `Нагрузка ${value} запр/с`}
         />
-        <Legend />
+        <Legend {...legendProps} />
         <ReferenceLine
           yAxisId="p99"
           y={P99_THRESHOLD_MS}
-          stroke="var(--red)"
+          stroke="var(--bad)"
           strokeDasharray="4 4"
-          label={{ value: `порог ${P99_THRESHOLD_MS} мс`, fill: 'var(--red)', position: 'insideTopLeft' }}
+          label={{ value: `порог ${P99_THRESHOLD_MS} мс`, ...thresholdLabel }}
         />
         {limitRps != null && (
           <ReferenceLine
             yAxisId="rps"
             x={limitRps}
-            stroke="var(--fg)"
-            label={{ value: 'предел', fill: 'var(--fg)', position: 'insideBottomRight' }}
+            stroke="var(--accent)"
+            label={{ value: 'предел', fill: 'var(--accent)', fontSize: 11, position: 'insideBottomRight' }}
           />
         )}
         <Line
           yAxisId="rps"
           dataKey="throughput"
           name="пропускная, запр/с"
-          stroke="var(--green)"
+          stroke="var(--series-throughput)"
           strokeWidth={2}
           isAnimationActive={false}
         />
@@ -87,7 +85,7 @@ export function PerformanceChart({ steps, limitRps }: Props) {
           yAxisId="rps"
           dataKey="target"
           name="целевая нагрузка"
-          stroke="var(--muted)"
+          stroke="var(--series-target)"
           strokeDasharray="3 3"
           dot={false}
           isAnimationActive={false}
@@ -96,7 +94,7 @@ export function PerformanceChart({ steps, limitRps }: Props) {
           yAxisId="p99"
           dataKey="p99"
           name="p99, мс"
-          stroke="var(--pink)"
+          stroke="var(--series-p99)"
           strokeWidth={2}
           connectNulls={false}
           isAnimationActive={false}
