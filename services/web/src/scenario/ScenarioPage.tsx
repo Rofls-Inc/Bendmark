@@ -2,7 +2,7 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { ValidationError, createRun } from '../api/client'
 import type { Scenario } from '../api/types'
-import { rememberRun } from '../run/recent'
+import { refreshRecent } from '../run/recent'
 import { formatDuration, formatNumber } from '../run/view'
 import {
   buildSteps,
@@ -46,7 +46,7 @@ export function ScenarioPage() {
     try {
       const scenario = toScenario(form, built.steps)
       const run = await createRun(scenario)
-      rememberRun({ id: run.id, status: run.status, name: scenario.name, created_at: new Date().toISOString() })
+      refreshRecent()
       navigate(`/runs/${run.id}`)
     } catch (err) {
       setServerErrors(err instanceof ValidationError

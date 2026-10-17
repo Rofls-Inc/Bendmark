@@ -5,9 +5,8 @@ import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Run, RunStatus } from '../api/types'
 import { demoRun } from '../demo/demoRun'
-import { json, mockFetch } from '../test/fetch'
+import { type Call, json, mockFetch } from '../test/fetch'
 import { RunPage } from './RunPage'
-import { loadRecent, rememberRun } from './recent'
 import { POLL_INTERVAL_MS } from './useRun'
 
 const ID = '7f1c2b8e-0000-4000-8000-000000000001'
@@ -47,25 +46,33 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+// Опросы самого прогона, без запросов списка «Недавних»
+const polls = (calls: Call[]) => calls.filter((c) => c.method === 'GET' && c.url === `/api/runs/${ID}`)
+const listCalls = (calls: Call[]) => calls.filter((c) => c.url.startsWith('/api/runs?'))
+
 const user = () => userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
 const tick = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
 
 describe('RunPage', () => {
   it('опрашивает прогон, пока он не завершится', async () => {
     const answers = [run('running', 1), run('completed', 7)]
-    const calls = mockFetch(() => json(200, answers.shift() ?? run('completed', 7)))
+    const calls = mockFetch((call) => call.url.startsWith('/api/runs?')
+      ? json(200, { runs: [], next_before: null })
+      : json(200, answers.shift() ?? run('completed', 7)))
     renderPage()
 
     expect(await screen.findByText('идёт')).toBeTruthy()
     expect(screen.getByRole('progressbar')).toBeTruthy()
+    expect(listCalls(calls)).toHaveLength(0)
     await tick(POLL_INTERVAL_MS)
     expect(await screen.findByText('завершён')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Повторить' })).toBeTruthy()
 
     // После конечного статуса запросов больше нет
     await tick(POLL_INTERVAL_MS * 3)
-    expect(calls.filter((c) => c.method === 'GET')).toHaveLength(2)
-    expect(loadRecent()[0]).toMatchObject({ id: ID, status: 'completed' })
+    expect(polls(calls)).toHaveLength(2)
+    // Прогон завершился: список «Недавних» перечитан с координатора
+    expect(listCalls(calls)).toEqual([expect.objectContaining({ url: '/api/runs?limit=10' })])
   })
 
   it('прогон в очереди ждёт агента', async () => {
@@ -93,9 +100,10 @@ describe('RunPage', () => {
     expect(screen.getByText(/только по полностью пройденным ступеням: 2 из 7/)).toBeTruthy()
     expect(calls.find((c) => c.method === 'POST')?.url).toBe(`/api/runs/${ID}/stop`)
     // Остановленный прогон больше не опрашивается
-    const gets = calls.filter((c) => c.method === 'GET').length
+    const gets = polls(calls).length
     await tick(POLL_INTERVAL_MS * 2)
-    expect(calls.filter((c) => c.method === 'GET')).toHaveLength(gets)
+    expect(polls(calls)).toHaveLength(gets)
+    expect(listCalls(calls)).toHaveLength(1)
   })
 
   it('отмена подтверждения не останавливает', async () => {
@@ -171,15 +179,6 @@ describe('RunPage', () => {
     expect(await screen.findByText('Прогон не найден')).toBeTruthy()
     await tick(POLL_INTERVAL_MS * 2)
     expect(calls).toHaveLength(1)
-  })
-
-  it('404 убирает прогон из «Недавних»', async () => {
-    rememberRun({ ...run('running', 1), name: 'потерянный' })
-    expect(loadRecent().some((r) => r.id === ID)).toBe(true)
-    mockFetch(() => json(404, {}))
-    renderPage()
-    expect(await screen.findByText('Прогон не найден')).toBeTruthy()
-    expect(loadRecent().some((r) => r.id === ID)).toBe(false)
   })
 
   it('координатор недоступен при остановке: понятный текст вместо «Failed to fetch»', async () => {
