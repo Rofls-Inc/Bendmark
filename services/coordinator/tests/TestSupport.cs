@@ -19,16 +19,35 @@ namespace Bendmark.Coordinator.Tests;
 // Координатор с фейковыми агентом и анализатором вместо gRPC
 public sealed class CoordinatorFactory : WebApplicationFactory<Program>
 {
+    private bool _ownsDatabase = true;
+
+    // Хост на чужой базе для теста перезапуска: базу удаляет сам тест
+    public static CoordinatorFactory Reusing(string databasePath) =>
+        new() { DatabasePath = databasePath, _ownsDatabase = false };
+
     public FakeAgentRunner Agent { get; } = new();
 
     public FakeAnalyzer Analyzer { get; } = new();
 
-    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+    // Своя база на каждый хост, чтобы тесты не видели чужие прогоны
+    public string DatabasePath { get; private init; } = TestData.NewDatabasePath();
+
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        builder.UseSetting("Storage:Path", DatabasePath);
         builder.ConfigureTestServices(services =>
         {
             services.AddSingleton<IAgentRunner>(Agent);
             services.AddSingleton<IAnalyzer>(Analyzer);
         });
+    }
+
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync();
+        if (_ownsDatabase)
+            TestData.DeleteDatabase(DatabasePath);
+    }
 }
 
 // Анализатор, ответ которого задаёт тест. По умолчанию: отказа нет, нижняя оценка — последняя ступень
@@ -100,6 +119,17 @@ public sealed class FakeAgentRunner : IAgentRunner
 
 public static class TestData
 {
+    public static string NewDatabasePath() =>
+        Path.Combine(Path.GetTempPath(), "bendmark-tests", $"{Guid.NewGuid()}.db");
+
+    public static void DeleteDatabase(string path)
+    {
+        // Пул держит файл открытым
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        foreach (var suffix in new[] { "", "-wal", "-shm" })
+            File.Delete(path + suffix);
+    }
+
     public static string Read(string kind, string name) =>
         File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "testdata", kind, name));
 

@@ -58,6 +58,9 @@ services:
     environment:
       Agent__Address: http://agent:50051
       Analyzer__Address: http://analyzer:50052
+    # Прогоны в SQLite переживают пересоздание контейнера
+    volumes:
+      - coordinator-data:/app/data
     networks: [bendmark]
     depends_on:
       abstock:
@@ -118,3 +121,4 @@ networks:
 volumes:
   abstock-data:
   abstock-keys:
+  coordinator-data:
