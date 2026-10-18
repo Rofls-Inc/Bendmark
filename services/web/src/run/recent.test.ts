@@ -1,54 +1,66 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest'
-import { RECENT_KEY, RECENT_LIMIT, forgetRun, loadRecent, rememberRun } from './recent'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { RunSummary } from '../api/types'
+import { json, mockFetch } from '../test/fetch'
+import { RECENT_LIMIT, loadRecent, refreshRecent } from './recent'
 
-const run = (id: string, status: 'created' | 'running' | 'completed' = 'created') =>
-  ({ id, status, name: `сценарий ${id}`, created_at: '2026-10-09T12:00:00Z' })
+const summary = (id: string, status: RunSummary['status'] = 'completed'): RunSummary => ({
+  id,
+  scenario_name: `сценарий ${id}`,
+  status,
+  created_at: '2026-10-09T12:00:00Z',
+  started_at: null,
+  finished_at: null,
+  analysis_status: null,
+  limit_rps: null,
+})
+
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
 
 describe('недавние прогоны', () => {
-  it('новый прогон в начале списка', () => {
-    rememberRun(run('a'))
-    rememberRun(run('b'))
-    expect(loadRecent().map((r) => r.id)).toEqual(['b', 'a'])
+  it('до первого ответа - загрузка', () => {
+    expect(loadRecent()).toEqual({ kind: 'loading' })
   })
 
-  it('статус обновляется без перестановки', () => {
-    rememberRun(run('a'))
-    rememberRun(run('b'))
-    rememberRun(run('a', 'completed'))
-    expect(loadRecent().map((r) => [r.id, r.status])).toEqual([['b', 'created'], ['a', 'completed']])
+  it(`первая страница GET /runs, ${RECENT_LIMIT} штук`, async () => {
+    const calls = mockFetch(() => json(200, { runs: [summary('b', 'running'), summary('a')], next_before: 'a' }))
+    await refreshRecent()
+    expect(calls.map((c) => c.url)).toEqual([`/api/runs?limit=${RECENT_LIMIT}`])
+    expect(loadRecent()).toEqual({ kind: 'ready', runs: [summary('b', 'running'), summary('a')] })
   })
 
-  it(`хранит не больше ${RECENT_LIMIT}`, () => {
-    for (let i = 0; i < RECENT_LIMIT + 3; i++)
-      rememberRun(run(String(i)))
-    const ids = loadRecent().map((r) => r.id)
-    expect(ids).toHaveLength(RECENT_LIMIT)
-    expect(ids[0]).toBe(String(RECENT_LIMIT + 2))
+  it('координатор недоступен: ошибка вместо списка', async () => {
+    mockFetch(() => {
+      throw new TypeError('Failed to fetch')
+    })
+    await refreshRecent()
+    expect(loadRecent()).toEqual({ kind: 'error', message: 'Координатор недоступен' })
   })
 
-  it('забыть прогон', () => {
-    rememberRun(run('a'))
-    forgetRun('a')
-    expect(loadRecent()).toEqual([])
+  it('сбой после загрузки не стирает показанный список', async () => {
+    mockFetch(() => json(200, { runs: [summary('a')], next_before: null }))
+    await refreshRecent()
+    mockFetch(() => json(502, {}))
+    await refreshRecent()
+    expect(loadRecent()).toEqual({ kind: 'ready', runs: [summary('a')] })
   })
 
-  it('битые данные в хранилище не ломают список', () => {
-    localStorage.setItem(RECENT_KEY, '{не json')
-    expect(loadRecent()).toEqual([])
-    localStorage.setItem(RECENT_KEY, JSON.stringify([{ id: 1 }, run('ok')]))
-    expect(loadRecent().map((r) => r.id)).toEqual(['ok'])
-  })
-
-  it('недоступное хранилище: пустой список и без исключений', () => {
-    const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied') })
-    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied') })
-    try {
-      expect(() => rememberRun(run('a'))).not.toThrow()
-      expect(loadRecent()).toEqual([])
-    } finally {
-      get.mockRestore()
-      set.mockRestore()
-    }
+  it('поздний ответ на старый запрос не затирает свежий', async () => {
+    let releaseOld: (r: Response) => void = () => {}
+    let first = true
+    mockFetch(() => {
+      if (first) {
+        first = false
+        return new Promise<Response>((resolve) => { releaseOld = resolve })
+      }
+      return json(200, { runs: [summary('new', 'running')], next_before: null })
+    })
+    const old = refreshRecent()
+    await refreshRecent()
+    releaseOld(json(200, { runs: [summary('old', 'created')], next_before: null }))
+    await old
+    expect(loadRecent()).toEqual({ kind: 'ready', runs: [summary('new', 'running')] })
   })
 })

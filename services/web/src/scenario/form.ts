@@ -62,6 +62,33 @@ export function buildSteps(form: ScenarioForm): BuildResult {
   return { ok: true, steps }
 }
 
+// Предупреждения не блокируют запуск, в отличие от ошибок
+export type FormWarnings = Partial<Record<FormField, string>>
+
+const SHORT_STEP_SECONDS = 10
+const LONG_RUN_SECONDS = 30 * 60
+
+export function formWarnings(form: ScenarioForm, steps: Step[] | null): FormWarnings {
+  const warnings: FormWarnings = {}
+  if (isLocalUrl(form.url))
+    warnings.url = 'localhost здесь — это сам агент, а не ваш компьютер: укажите адрес, доступный агенту'
+  const duration = Number(form.durationSeconds.replace(',', '.'))
+  if (Number.isFinite(duration) && duration > 0 && duration < SHORT_STEP_SECONDS)
+    warnings.durationSeconds = `Ступень короче ${SHORT_STEP_SECONDS} с: перцентили будут шумными`
+  else if (steps && totalSeconds(steps) > LONG_RUN_SECONDS)
+    warnings.durationSeconds = 'Прогон дольше 30 минут'
+  return warnings
+}
+
+function isLocalUrl(raw: string): boolean {
+  try {
+    const host = new URL(raw.trim()).hostname
+    return host === 'localhost' || host === '127.0.0.1' || host === '[::1]'
+  } catch {
+    return false
+  }
+}
+
 export function toScenario(form: ScenarioForm, steps: Step[]): Scenario {
   return {
     name: form.name.trim(),

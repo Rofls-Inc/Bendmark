@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, UNAVAILABLE_MESSAGE, ValidationError, request, toError } from './client'
+import { ApiError, UNAVAILABLE_MESSAGE, ValidationError, listRuns, request, toError } from './client'
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/problem+json' } })
@@ -51,5 +51,28 @@ describe('request', () => {
     const abort = new DOMException('aborted', 'AbortError')
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abort))
     await expect(request('/api/runs/1')).rejects.toBe(abort)
+  })
+})
+
+describe('listRuns', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('передаёт limit и before', async () => {
+    const fetch = vi.fn().mockResolvedValue(json(200, { runs: [], next_before: null }))
+    vi.stubGlobal('fetch', fetch)
+    await listRuns({ limit: 5, before: 'abc' })
+    expect(fetch.mock.calls[0][0]).toBe('/api/runs?limit=5&before=abc')
+  })
+
+  it('400 на неизвестный before отдаёт текст координатора', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(400, { detail: 'Прогон abc не найден' })))
+    await expect(listRuns({ before: 'abc' })).rejects.toThrow('Прогон abc не найден')
+  })
+
+  it('ответ без runs - ошибка, а не пустой список', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(200, { id: 'x' })))
+    await expect(listRuns()).rejects.toBeInstanceOf(ApiError)
   })
 })

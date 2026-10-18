@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_STEPS, buildSteps, defaultForm, formFromScenario, mapServerErrors, toScenario, totalSeconds } from './form'
+import { MAX_STEPS, buildSteps, defaultForm, formFromScenario, formWarnings, mapServerErrors, toScenario, totalSeconds } from './form'
 
 describe('buildSteps', () => {
   it('собирает ступени как в examples/scenario.yaml', () => {
@@ -136,5 +136,25 @@ describe('formFromScenario', () => {
     const { form, exact } = formFromScenario(single)
     expect(exact).toBe(true)
     expect(form).toMatchObject({ fromRps: '250', toRps: '250', durationSeconds: '10' })
+  })
+})
+
+describe('formWarnings', () => {
+  const steps = (count: number, duration: number) =>
+    Array.from({ length: count }, (_, i) => ({ target_rps: 100 + i, duration_seconds: duration }))
+
+  it('без предупреждений для сценария по умолчанию', () => {
+    expect(formWarnings(defaultForm, steps(7, 45))).toEqual({})
+  })
+
+  it('localhost в URL - это сам агент', () => {
+    expect(formWarnings({ ...defaultForm, url: 'http://localhost:5062/' }, null).url).toMatch(/сам агент/)
+    expect(formWarnings({ ...defaultForm, url: 'http://127.0.0.1/' }, null).url).toBeDefined()
+    expect(formWarnings({ ...defaultForm, url: 'не url' }, null).url).toBeUndefined()
+  })
+
+  it('короткая ступень и долгий прогон', () => {
+    expect(formWarnings({ ...defaultForm, durationSeconds: '5' }, steps(7, 5)).durationSeconds).toMatch(/шумными/)
+    expect(formWarnings(defaultForm, steps(50, 45)).durationSeconds).toBe('Прогон дольше 30 минут')
   })
 })
