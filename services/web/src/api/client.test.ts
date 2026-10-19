@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, UNAVAILABLE_MESSAGE, ValidationError, request, toError } from './client'
+import { ApiError, UNAVAILABLE_MESSAGE, ValidationError, listRuns, request, toError } from './client'
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/problem+json' } })
@@ -28,10 +28,16 @@ describe('toError', () => {
     expect(error.message).toBe('Bad Request')
   })
 
-  it('ответ не в JSON, например от прокси', async () => {
+  it('502 от nginx без JSON - координатор недоступен', async () => {
     const error = await toError(new Response('<html>Bad Gateway</html>', { status: 502 }))
     expect(error).toBeInstanceOf(ApiError)
-    expect(error.message).toBe('Координатор ответил 502')
+    expect(error.message).toBe('Координатор недоступен')
+  })
+
+  it('прочий ответ не в JSON', async () => {
+    const error = await toError(new Response('<html>Internal Server Error</html>', { status: 500 }))
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error.message).toBe('Координатор ответил 500')
   })
 })
 
@@ -51,5 +57,33 @@ describe('request', () => {
     const abort = new DOMException('aborted', 'AbortError')
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(abort))
     await expect(request('/api/runs/1')).rejects.toBe(abort)
+  })
+})
+
+describe('listRuns', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('передаёт limit и before', async () => {
+    const fetch = vi.fn().mockResolvedValue(json(200, { runs: [], next_before: null }))
+    vi.stubGlobal('fetch', fetch)
+    await listRuns({ limit: 5, before: 'abc' })
+    expect(fetch.mock.calls[0][0]).toBe('/api/runs?limit=5&before=abc')
+  })
+
+  it('400 на неизвестный before - ошибка поля before', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(400, {
+      title: 'One or more validation errors occurred.',
+      errors: { before: ['Прогона с таким id нет'] },
+    })))
+    const error = await listRuns({ before: 'abc' }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(ValidationError)
+    expect((error as ValidationError).fields.before).toEqual(['Прогона с таким id нет'])
+  })
+
+  it('ответ без runs - ошибка, а не пустой список', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(200, { id: 'x' })))
+    await expect(listRuns()).rejects.toBeInstanceOf(ApiError)
   })
 })
