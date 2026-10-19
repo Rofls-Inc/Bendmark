@@ -7,6 +7,7 @@ import type { Run, RunStatus } from '../api/types'
 import { demoRun } from '../demo/demoRun'
 import { type Call, json, mockFetch } from '../test/fetch'
 import { RunPage } from './RunPage'
+import { refreshRecent } from './recent'
 import { POLL_INTERVAL_MS } from './useRun'
 
 const ID = '7f1c2b8e-0000-4000-8000-000000000001'
@@ -73,6 +74,19 @@ describe('RunPage', () => {
     expect(polls(calls)).toHaveLength(2)
     // Прогон завершился: список «Недавних» перечитан с координатора
     expect(listCalls(calls)).toEqual([expect.objectContaining({ url: '/api/runs?limit=10' })])
+  })
+
+  it('устаревший статус в «Недавних» обновляется при открытии прогона', async () => {
+    const calls = mockFetch((call) => call.url.startsWith('/api/runs?')
+      ? json(200, { runs: [{ id: ID, scenario_name: 'abstock-home-ramp', status: 'running', created_at: '2026-10-09T12:00:00Z',
+          started_at: null, finished_at: null, analysis_status: null, limit_rps: null }], next_before: null })
+      : json(200, run('completed', 7)))
+    // Панель загрузила список, пока прогон ещё шёл; потом он завершился без открытой страницы
+    await refreshRecent()
+    renderPage()
+
+    expect(await screen.findByText('завершён')).toBeTruthy()
+    expect(listCalls(calls)).toHaveLength(2)
   })
 
   it('прогон в очереди ждёт агента', async () => {

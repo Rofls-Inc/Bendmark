@@ -1,6 +1,6 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { listRuns } from '../api/client'
-import type { RunSummary } from '../api/types'
+import type { RunStatus, RunSummary } from '../api/types'
 
 // Недавние прогоны - первая страница GET /runs: одна на все браузеры, статусы от координатора.
 // Список обновляется при открытии приложения, при возврате в окно, после создания прогона
@@ -41,6 +41,11 @@ export async function refreshRecent(): Promise<void> {
 
 export function loadRecent(): RecentState {
   return state
+}
+
+// Статус прогона в загруженном списке; undefined - списка ещё нет или прогона в нём нет
+export function recentStatus(id: string): RunStatus | undefined {
+  return state.kind === 'ready' ? state.runs.find((r) => r.id === id)?.status : undefined
 }
 
 // Для тестов: каждый начинает с пустого списка

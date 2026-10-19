@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
@@ -45,5 +46,30 @@ describe('боковая панель «Недавние»', () => {
     })
     renderApp()
     expect(await screen.findByText('Координатор недоступен')).toBeTruthy()
+  })
+
+  it('после ошибки список можно перечитать кнопкой', async () => {
+    let up = false
+    mockFetch(() => up
+      ? json(200, { runs: [], next_before: null })
+      : new Response('<html>Bad Gateway</html>', { status: 502 }))
+    renderApp()
+
+    expect(await screen.findByText(/Координатор недоступен/)).toBeTruthy()
+    up = true
+    await userEvent.click(screen.getByRole('button', { name: 'Повторить' }))
+    expect(await screen.findByText('Прогонов пока нет')).toBeTruthy()
+  })
+
+  it('на узком экране лишние прогоны помечены для скрытия', async () => {
+    const runs = Array.from({ length: 7 }, (_, i) => ({
+      id: `r${i}`, scenario_name: `s${i}`, status: 'completed', created_at: '2026-10-09T12:00:00Z',
+      started_at: null, finished_at: null, analysis_status: null, limit_rps: null,
+    }))
+    mockFetch(() => json(200, { runs, next_before: null }))
+    renderApp()
+
+    expect((await screen.findByRole('link', { name: 's4' })).classList.contains('recent-extra')).toBe(false)
+    expect(screen.getByRole('link', { name: 's5' }).classList.contains('recent-extra')).toBe(true)
   })
 })

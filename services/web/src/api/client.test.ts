@@ -28,10 +28,16 @@ describe('toError', () => {
     expect(error.message).toBe('Bad Request')
   })
 
-  it('ответ не в JSON, например от прокси', async () => {
+  it('502 от nginx без JSON - координатор недоступен', async () => {
     const error = await toError(new Response('<html>Bad Gateway</html>', { status: 502 }))
     expect(error).toBeInstanceOf(ApiError)
-    expect(error.message).toBe('Координатор ответил 502')
+    expect(error.message).toBe('Координатор недоступен')
+  })
+
+  it('прочий ответ не в JSON', async () => {
+    const error = await toError(new Response('<html>Internal Server Error</html>', { status: 500 }))
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error.message).toBe('Координатор ответил 500')
   })
 })
 
@@ -66,9 +72,14 @@ describe('listRuns', () => {
     expect(fetch.mock.calls[0][0]).toBe('/api/runs?limit=5&before=abc')
   })
 
-  it('400 на неизвестный before отдаёт текст координатора', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(400, { detail: 'Прогон abc не найден' })))
-    await expect(listRuns({ before: 'abc' })).rejects.toThrow('Прогон abc не найден')
+  it('400 на неизвестный before - ошибка поля before', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(400, {
+      title: 'One or more validation errors occurred.',
+      errors: { before: ['Прогона с таким id нет'] },
+    })))
+    const error = await listRuns({ before: 'abc' }).catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(ValidationError)
+    expect((error as ValidationError).fields.before).toEqual(['Прогона с таким id нет'])
   })
 
   it('ответ без runs - ошибка, а не пустой список', async () => {

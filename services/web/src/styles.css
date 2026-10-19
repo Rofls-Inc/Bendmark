@@ -110,6 +110,14 @@ h2 {
   min-width: 0;
 }
 
+button.link {
+  padding: 0;
+  color: var(--accent);
+  font-size: inherit;
+  border: none;
+  text-decoration: underline;
+}
+
 .recent-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -215,6 +223,10 @@ main {
   .sidebar .brand,
   .nav-group {
     margin: 0 8px 0 0;
+  }
+
+  .sidebar .recent-extra {
+    display: none;
   }
 
   .page {

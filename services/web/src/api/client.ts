@@ -94,6 +94,10 @@ export async function toError(response: Response): Promise<Error> {
   if (response.status === 400 && isFieldErrors(errors))
     return new ValidationError(errors)
 
+  // nginx отвечает 502/503/504 своей HTML-страницей, когда координатор лежит
+  if (body === null && [502, 503, 504].includes(response.status))
+    return new ApiError(response.status, UNAVAILABLE_MESSAGE)
+
   const detail = typeof body?.detail === 'string' ? body.detail
     : typeof body?.title === 'string' ? body.title
     : null

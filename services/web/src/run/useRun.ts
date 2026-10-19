@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError, getRun } from '../api/client'
 import type { Run, RunStatus } from '../api/types'
 import { demoRuns, isDemoRun } from '../demo/demoRun'
-import { refreshRecent } from './recent'
+import { recentStatus, refreshRecent } from './recent'
 import { needsPolling } from './view'
 
 export const POLL_INTERVAL_MS = 2000
@@ -27,7 +27,9 @@ export function useRun(id: string): { state: RunState; applyRun: (run: Run) => v
 
   const track = useCallback((run: Run) => {
     const prev = seen.current
-    if (prev && prev.id === run.id && prev.status !== run.status)
+    const listed = recentStatus(run.id)
+    // Статус сменился на глазах или в панели уже устарел (прогон завершился, пока страница была закрыта)
+    if ((prev?.id === run.id && prev.status !== run.status) || (listed !== undefined && listed !== run.status))
       refreshRecent()
     seen.current = { id: run.id, status: run.status }
   }, [])
