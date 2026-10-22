@@ -171,7 +171,7 @@ stateDiagram-v2
 | Исход вызова `Run` | Статус прогона |
 | --- | --- |
 | `OK`, получены все ступени сценария | `completed` |
-| `INVALID_ARGUMENT`, `RESOURCE_EXHAUSTED` («Агент занят»), `INTERNAL`, `UNAVAILABLE`; `OK`, но ступеней меньше, чем в сценарии; лишняя ступень, ступени не по порядку или `NaN` в метриках | `failed`, полученные ступени сохраняются как диагностика |
+| `INVALID_ARGUMENT`, `RESOURCE_EXHAUSTED` после всех повторов («Агент занят»), `INTERNAL`, `UNAVAILABLE`; `OK`, но ступеней меньше, чем в сценарии; лишняя ступень, ступени не по порядку или `NaN` в метриках | `failed`, полученные ступени сохраняются как диагностика |
 | `CANCELLED` после `POST /runs/{id}/stop` | `aborted`, только полные ступени |
 | `DEADLINE_EXCEEDED` | `aborted` |
 

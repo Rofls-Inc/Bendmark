@@ -105,21 +105,107 @@ public class RunLifecycleTests
         Assert.Contains("сломался", run.GetProperty("error").GetString());
         Assert.Equal(1, Api.StepCount(run));
         Assert.Equal(JsonValueKind.String, run.GetProperty("finished_at").ValueKind);
+        // Повторяется только RESOURCE_EXHAUSTED
+        Assert.Equal(new[] { id }, factory.Agent.RunCalls);
     }
 
     [Fact]
-    public async Task Busy_agent_fails_run()
+    public async Task Busy_agent_is_retried_until_it_accepts_run()
     {
         await using var factory = new CoordinatorFactory();
         var client = factory.CreateClient();
         var id = await Api.CreateRunAsync(client);
-        await factory.Agent.WaitStartedAsync();
 
-        factory.Agent.Fail(StatusCode.ResourceExhausted);
+        factory.Agent.Fail(StatusCode.ResourceExhausted, "занят");
+        factory.Agent.Fail(StatusCode.ResourceExhausted, "занят");
+        SendRampSteps(factory.Agent);
+        factory.Agent.Finish();
 
-        var run = await Api.WaitForStatusAsync(client, id, "failed");
+        var run = await WaitForFinishAsync(client, id);
+        Assert.Equal("completed", Api.Status(run));
+        Assert.Equal(JsonValueKind.Null, run.GetProperty("error").ValueKind);
+        Assert.Equal(7, Api.StepCount(run));
+        Assert.Equal(new[] { id, id, id }, factory.Agent.RunCalls);
+    }
+
+    [Fact]
+    public async Task Busy_agent_on_every_attempt_fails_run()
+    {
+        await using var factory = new CoordinatorFactory { BusyRetryCount = 3 };
+        var client = factory.CreateClient();
+        var id = await Api.CreateRunAsync(client);
+
+        // Первый вызов и три повтора
+        for (var i = 0; i < 4; i++)
+            factory.Agent.Fail(StatusCode.ResourceExhausted, "занят");
+
+        var run = await WaitForFinishAsync(client, id);
+        Assert.Equal("failed", Api.Status(run));
         Assert.Equal("Агент занят", run.GetProperty("error").GetString());
         Assert.Equal(0, Api.StepCount(run));
+        Assert.Equal(Enumerable.Repeat(id, 4), factory.Agent.RunCalls);
+    }
+
+    [Fact]
+    public async Task Busy_agent_is_not_retried_when_retries_are_off()
+    {
+        await using var factory = new CoordinatorFactory { BusyRetryCount = 0 };
+        var client = factory.CreateClient();
+        var id = await Api.CreateRunAsync(client);
+
+        factory.Agent.Fail(StatusCode.ResourceExhausted, "занят");
+
+        var run = await WaitForFinishAsync(client, id);
+        Assert.Equal("failed", Api.Status(run));
+        Assert.Equal("Агент занят", run.GetProperty("error").GetString());
+        Assert.Equal(new[] { id }, factory.Agent.RunCalls);
+    }
+
+    [Fact]
+    public async Task Busy_after_steps_is_not_retried()
+    {
+        await using var factory = new CoordinatorFactory();
+        var client = factory.CreateClient();
+        var id = await Api.CreateRunAsync(client);
+
+        // По контракту "занят" приходит до нагрузки, повтор после ступеней задублировал бы их
+        factory.Agent.SendStep(TestData.Step(1));
+        factory.Agent.Fail(StatusCode.ResourceExhausted, "занят");
+
+        var run = await WaitForFinishAsync(client, id);
+        Assert.Equal("failed", Api.Status(run));
+        Assert.Equal("Агент занят", run.GetProperty("error").GetString());
+        Assert.Equal(1, Api.StepCount(run));
+        Assert.Equal(new[] { id }, factory.Agent.RunCalls);
+    }
+
+    [Fact]
+    public async Task Stop_during_busy_pause_aborts_without_calling_agent()
+    {
+        var pause = TimeSpan.FromSeconds(40);
+        await using var factory = new CoordinatorFactory { BusyRetryDelaySeconds = pause.TotalSeconds };
+        var client = factory.CreateClient();
+        var id = await Api.CreateRunAsync(client);
+
+        factory.Agent.Fail(StatusCode.ResourceExhausted, "занят");
+        await factory.Clock.WaitForTimerAsync(pause);
+
+        // Пока идёт пауза, прогон running без ступеней
+        var waiting = await Api.GetRunAsync(client, id);
+        Assert.Equal("running", Api.Status(waiting));
+        Assert.Equal(0, Api.StepCount(waiting));
+
+        using var response = await Api.StopAsync(client, id);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var stopped = await Api.ReadJsonAsync(response);
+        Assert.Equal("aborted", Api.Status(stopped));
+        Assert.Equal(JsonValueKind.Null, stopped.GetProperty("error").ValueKind);
+        Assert.Equal(0, Api.StepCount(stopped));
+
+        // Ни повтора Run, ни Stop: агент этот прогон не исполнял
+        Assert.Equal(new[] { id }, factory.Agent.RunCalls);
+        Assert.Empty(factory.Agent.StopCalls);
+        Assert.Equal("aborted", Api.Status(await Api.GetRunAsync(client, id)));
     }
 
     [Fact]
@@ -284,6 +370,9 @@ public class RunLifecycleTests
         Assert.Equal("aborted", result.GetProperty("status").GetString());
         Assert.Equal(2, result.GetProperty("steps").GetArrayLength());
     }
+
+    private static Task<JsonElement> WaitForFinishAsync(HttpClient client, Guid id) =>
+        Api.WaitForAsync(client, id, run => Api.Status(run) is "completed" or "failed" or "aborted");
 
     private static void SendRampSteps(FakeAgentRunner agent, int skip = 0, int? take = null)
     {
