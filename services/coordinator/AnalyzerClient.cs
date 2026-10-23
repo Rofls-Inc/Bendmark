@@ -49,8 +49,52 @@ public sealed class GrpcAnalyzer : IAnalyzer
             limit.Found,
             limit.HasLimitRps ? limit.LimitRps : null,
             limit.HasFailedStepIndex ? limit.FailedStepIndex : null,
-            limit.Reasons.ToList());
+            limit.Reasons.ToList(),
+            limit.Confirmed,
+            ToDiagnosis(response.Diagnosis));
     }
+
+    // Без диагноза или со статусом UNSPECIFIED предел всё равно
+    // показываем: диагноз - дополнение к нему, а не условие анализа
+    private static Diagnosis? ToDiagnosis(Proto.Diagnosis? diagnosis)
+    {
+        DiagnosisStatus? status = diagnosis?.Status switch
+        {
+            Proto.DiagnosisStatus.Diagnosed => DiagnosisStatus.Diagnosed,
+            Proto.DiagnosisStatus.NoLimit => DiagnosisStatus.NoLimit,
+            Proto.DiagnosisStatus.TooFewSteps => DiagnosisStatus.TooFewSteps,
+            _ => null,
+        };
+        if (diagnosis is null || status is null)
+            return null;
+
+        var diagnosed = status == DiagnosisStatus.Diagnosed;
+        return new Diagnosis
+        {
+            Status = status.Value,
+            Cause = diagnosed ? ToCause(diagnosis.Cause) : null,
+            Confidence = diagnosed ? ToConfidence(diagnosis.Confidence) : null,
+            Explanation = diagnosis.Explanation,
+            Evidence = diagnosis.Evidence.ToList(),
+        };
+    }
+
+    private static DiagnosisCause? ToCause(Proto.Cause cause) => cause switch
+    {
+        Proto.Cause.Rejecting => DiagnosisCause.Rejecting,
+        Proto.Cause.SlowResponses => DiagnosisCause.SlowResponses,
+        Proto.Cause.Saturation => DiagnosisCause.Saturation,
+        Proto.Cause.Inconclusive => DiagnosisCause.Inconclusive,
+        _ => null,
+    };
+
+    private static DiagnosisConfidence? ToConfidence(Proto.Confidence confidence) => confidence switch
+    {
+        Proto.Confidence.Low => DiagnosisConfidence.Low,
+        Proto.Confidence.Medium => DiagnosisConfidence.Medium,
+        Proto.Confidence.High => DiagnosisConfidence.High,
+        _ => null,
+    };
 
     private static Proto.StepResult ToProto(StepResultDto step) => new()
     {
