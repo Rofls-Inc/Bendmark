@@ -29,6 +29,13 @@ public sealed class CoordinatorFactory : WebApplicationFactory<Program>
 
     public FakeAnalyzer Analyzer { get; } = new();
 
+    public WatchedTimeProvider Clock { get; } = new();
+
+    // Повторы при RESOURCE_EXHAUSTED: число как по умолчанию, пауза нулевая, чтобы тесты не ждали
+    public int BusyRetryCount { get; init; } = 3;
+
+    public double BusyRetryDelaySeconds { get; init; }
+
     // Своя база на каждый хост, чтобы тесты не видели чужие прогоны
     public string DatabasePath { get; private init; } = TestData.NewDatabasePath();
 
@@ -39,6 +46,13 @@ public sealed class CoordinatorFactory : WebApplicationFactory<Program>
         {
             services.AddSingleton<IAgentRunner>(Agent);
             services.AddSingleton<IAnalyzer>(Analyzer);
+            services.AddSingleton<TimeProvider>(Clock);
+            // PostConfigure - после привязки appsettings.json, поэтому значения теста побеждают
+            services.PostConfigure<AgentOptions>(options =>
+            {
+                options.BusyRetryCount = BusyRetryCount;
+                options.BusyRetryDelaySeconds = BusyRetryDelaySeconds;
+            });
         });
     }
 
@@ -67,7 +81,31 @@ public sealed class FakeAnalyzer : IAnalyzer
     }
 }
 
+// Системные часы, которые сообщают о каждом новом таймере: по ним тест видит,
+// что координатор начал паузу перед повтором Run
+public sealed class WatchedTimeProvider : TimeProvider
+{
+    private readonly Channel<TimeSpan> _timers = Channel.CreateUnbounded<TimeSpan>();
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        _timers.Writer.TryWrite(dueTime);
+        return base.CreateTimer(callback, state, dueTime, period);
+    }
+
+    // Ждёт таймер с заданной задержкой, таймеры с другой задержкой пропускает
+    public async Task WaitForTimerAsync(TimeSpan dueTime)
+    {
+        using var timeout = new CancellationTokenSource(FakeAgentRunner.Timeout);
+        while (await _timers.Reader.ReadAsync(timeout.Token) != dueTime)
+        {
+        }
+    }
+}
+
 // Агент, которым управляет тест: ступени, завершение и ошибки отправляются вручную.
+// Каждый вызов Run читает события по порядку, поэтому ошибки для нескольких
+// вызовов подряд можно отправить заранее.
 // Stop ведёт себя как настоящий агент: поток Run завершается с CANCELLED
 public sealed class FakeAgentRunner : IAgentRunner
 {
@@ -76,9 +114,17 @@ public sealed class FakeAgentRunner : IAgentRunner
     private static readonly object Done = new();
     private readonly Channel<object> _events = Channel.CreateUnbounded<object>();
     private readonly Channel<Guid> _started = Channel.CreateUnbounded<Guid>();
+    private readonly ConcurrentQueue<Guid> _runCalls = new();
     private readonly ConcurrentQueue<Guid> _stopCalls = new();
 
+    // id прогонов из всех вызовов Run, по порядку, повтор вызова даёт ещё одну запись
+    public IReadOnlyCollection<Guid> RunCalls => _runCalls;
+
     public IReadOnlyCollection<Guid> StopCalls => _stopCalls;
+
+    // false - агент занят чужим прогоном: Stop отвечает was_running=false и не трогает
+    // поток Run, тот завершается тем, что отправит тест
+    public bool StopFindsRun { get; set; } = true;
 
     public void SendStep(StepResultDto step) => _events.Writer.TryWrite(step);
 
@@ -96,6 +142,7 @@ public sealed class FakeAgentRunner : IAgentRunner
         Scenario scenario,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        _runCalls.Enqueue(runId);
         _started.Writer.TryWrite(runId);
         while (true)
         {
@@ -112,6 +159,8 @@ public sealed class FakeAgentRunner : IAgentRunner
     public Task<bool> StopAsync(Guid runId, CancellationToken cancellationToken)
     {
         _stopCalls.Enqueue(runId);
+        if (!StopFindsRun)
+            return Task.FromResult(false);
         Fail(StatusCode.Cancelled, "остановлен");
         return Task.FromResult(true);
     }

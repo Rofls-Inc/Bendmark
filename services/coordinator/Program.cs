@@ -19,7 +19,14 @@ builder.Services.AddOptions<AgentOptions>()
         "Agent:Address должен быть абсолютным URL, например http://agent:50051")
     .Validate(o => double.IsFinite(o.RequestTimeoutSeconds) && o.RequestTimeoutSeconds > 0,
         "Agent:RequestTimeoutSeconds должен быть конечным числом больше нуля")
+    .Validate(o => o.BusyRetryCount >= 0,
+        "Agent:BusyRetryCount должен быть целым числом не меньше нуля")
+    .Validate(o => double.IsFinite(o.BusyRetryDelaySeconds) && o.BusyRetryDelaySeconds is >= 0 and <= 3600,
+        "Agent:BusyRetryDelaySeconds должен быть числом от 0 до 3600")
     .ValidateOnStart();
+
+// Часы для пауз между повторами Run; тесты подменяют их, чтобы видеть начало паузы
+builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.AddOptions<AnalyzerOptions>()
     .Bind(builder.Configuration.GetSection(AnalyzerOptions.SectionName))

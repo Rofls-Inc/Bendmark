@@ -1,4 +1,5 @@
 using Grpc.Core;
+using Microsoft.Extensions.Options;
 
 namespace Bendmark.Coordinator;
 
@@ -18,8 +19,16 @@ public readonly record struct StopResult(StopOutcome Outcome, Run? Run);
 // Исполняет прогоны на агенте по одному и останавливает их по запросу.
 // Конечный статус начатого прогона фиксирует только ExecuteAsync - так переход
 // в конечный статус происходит один раз, а полученные ступени не теряются
-public sealed class RunExecutor(RunStore store, IAgentRunner agent, IAnalyzer analyzer, ILogger<RunExecutor> logger)
+public sealed class RunExecutor(
+    RunStore store,
+    IAgentRunner agent,
+    IAnalyzer analyzer,
+    IOptions<AgentOptions> agentOptions,
+    TimeProvider time,
+    ILogger<RunExecutor> logger)
 {
+    private readonly AgentOptions _agentOptions = agentOptions.Value;
+
     // Время ответа POST /runs/{id}/stop не больше StopCallTimeout + FinishGrace + CancelGrace,
     // то есть Agent:RequestTimeoutSeconds + 10 с (15 с по умолчанию); см. README.
 
@@ -52,7 +61,7 @@ public sealed class RunExecutor(RunStore store, IAgentRunner agent, IAnalyzer an
                 return;
             }
 
-            var (status, error) = await RunOnAgentAsync(run, callCancellation.Token, stoppingToken);
+            var (status, error) = await RunOnAgentAsync(run, active, callCancellation.Token, stoppingToken);
             plan = AnalysisPlan.For(status, store.Get(runId)!.Steps);
             store.TryFinish(runId, status, error, plan?.Initial());
             logger.LogInformation("Прогон {RunId} завершён со статусом {Status}", runId, status);
@@ -98,30 +107,70 @@ public sealed class RunExecutor(RunStore store, IAgentRunner agent, IAnalyzer an
         logger.LogInformation("Анализ прогона {RunId}: {Status}", runId, analysis.Status);
     }
 
+    // Вызывает у агента Run. Если агент занят (RESOURCE_EXHAUSTED), повторяет вызов после паузы
+    // до Agent:BusyRetryCount раз; на время пауз прогон остаётся running без ступеней
     private async Task<(RunStatus Status, string? Error)> RunOnAgentAsync(
-        Run run, CancellationToken callToken, CancellationToken stoppingToken)
+        Run run, ActiveRun active, CancellationToken callToken, CancellationToken stoppingToken)
     {
         try
         {
             var plannedStepCount = run.Scenario.Steps?.Count ?? 0;
-            var expectedIndex = 1u;
-            await foreach (var step in agent.RunAsync(run.Id, run.Scenario, callToken))
+            var attempts = _agentOptions.BusyRetryCount + 1;
+            for (var attempt = 1; ; attempt++)
             {
-                if (step.Index != expectedIndex)
-                    throw new AgentProtocolException(
-                        $"Агент прислал ступень {step.Index}, ожидалась {expectedIndex}");
-                if (expectedIndex > plannedStepCount)
-                    throw new AgentProtocolException(
-                        $"Агент прислал лишнюю ступень {step.Index}, в сценарии {plannedStepCount} ступеней");
-                store.AddStep(run.Id, step);
-                expectedIndex++;
-            }
+                var expectedIndex = 1u;
+                try
+                {
+                    await foreach (var step in agent.RunAsync(run.Id, run.Scenario, callToken))
+                    {
+                        if (step.Index != expectedIndex)
+                            throw new AgentProtocolException(
+                                $"Агент прислал ступень {step.Index}, ожидалась {expectedIndex}");
+                        if (expectedIndex > plannedStepCount)
+                            throw new AgentProtocolException(
+                                $"Агент прислал лишнюю ступень {step.Index}, в сценарии {plannedStepCount} ступеней");
+                        store.AddStep(run.Id, step);
+                        expectedIndex++;
+                    }
 
-            var receivedStepCount = expectedIndex - 1;
-            if (receivedStepCount != plannedStepCount)
-                throw new AgentProtocolException(
-                    $"Агент завершил поток: получено {receivedStepCount} из {plannedStepCount} ступеней");
-            return (RunStatus.Completed, null);
+                    var receivedStepCount = expectedIndex - 1;
+                    if (receivedStepCount != plannedStepCount)
+                        throw new AgentProtocolException(
+                            $"Агент завершил поток: получено {receivedStepCount} из {plannedStepCount} ступеней");
+                    return (RunStatus.Completed, null);
+                }
+                // По контракту «занят» приходит до нагрузки. Если ступени уже были, повтор
+                // задублировал бы их: такой ответ разбирает Classify как обычную ошибку
+                catch (RpcException e) when (e.StatusCode == StatusCode.ResourceExhausted && expectedIndex == 1)
+                {
+                    if (attempt == attempts)
+                    {
+                        // Остановку запросили, пока шёл последний вызов: итог как на промежуточной
+                        // попытке (там PauseAsync вернёт false), иначе он зависел бы от номера попытки
+                        if (store.IsStopRequested(run.Id))
+                        {
+                            logger.LogInformation("Прогон {RunId} остановлен, агент был занят до последней попытки", run.Id);
+                            return (RunStatus.Aborted, null);
+                        }
+
+                        logger.LogWarning("Агент занят: прогон {RunId}, попытка {Attempt} из {Attempts}, повторов больше нет",
+                            run.Id, attempt, attempts);
+                        return Classify(e.StatusCode, e.Status.Detail,
+                            store.IsStopRequested(run.Id), stoppingToken.IsCancellationRequested);
+                    }
+
+                    logger.LogInformation(
+                        "Агент занят: прогон {RunId}, попытка {Attempt} из {Attempts}, повтор через {Delay} с",
+                        run.Id, attempt, attempts, _agentOptions.BusyRetryDelaySeconds);
+                }
+
+                // Остановка во время паузы отменяет callToken: Task.Delay бросит OperationCanceledException
+                if (!await active.PauseAsync(_agentOptions.BusyRetryDelay, time, callToken))
+                {
+                    logger.LogInformation("Прогон {RunId} остановлен до повтора вызова Run", run.Id);
+                    return (RunStatus.Aborted, null);
+                }
+            }
         }
         catch (RpcException e)
         {
@@ -150,10 +199,8 @@ public sealed class RunExecutor(RunStore store, IAgentRunner agent, IAnalyzer an
         StatusCode.Cancelled when coordinatorStopping => (RunStatus.Aborted, "Координатор остановлен"),
         StatusCode.Cancelled => (RunStatus.Aborted, "Прогон отменён на стороне агента"),
         StatusCode.DeadlineExceeded => (RunStatus.Aborted, "Истёк срок вызова агента"),
-        // Отступление от контракта: он предлагает повторить позже, а мы сразу ставим failed.
-        // В v1 координатор один и запускает прогоны по одному, поэтому агент занят только
-        // чужим прогоном - например, оставшимся после перезапуска координатора.
-        // #48: повтор с паузой вместо немедленного failed (issue «Координатор: повтор при RESOURCE_EXHAUSTED»)
+        // Сюда RESOURCE_EXHAUSTED доходит только после всех повторов (Agent:BusyRetryCount),
+        // см. RunOnAgentAsync, или если агент прислал его посреди потока
         StatusCode.ResourceExhausted => (RunStatus.Failed, "Агент занят"),
         StatusCode.InvalidArgument => (RunStatus.Failed, $"Агент отклонил сценарий: {detail}"),
         StatusCode.Unavailable => (RunStatus.Failed, $"Агент недоступен: {detail}"),
@@ -176,7 +223,13 @@ public sealed class RunExecutor(RunStore store, IAgentRunner agent, IAnalyzer an
 
         // Прогон идёт. Сам статус не меняем: его зафиксирует ExecuteAsync по исходу вызова Run
         var active = GetActive(runId);
-        if (active is not null)
+        if (active is not null && active.RequestStop())
+        {
+            // Прогон ждал повтора после RESOURCE_EXHAUSTED: на агенте его нет, Stop не нужен.
+            // Пауза уже прервана, ExecuteAsync сразу зафиксирует aborted
+            await active.WaitAsync(CancelGrace, cancellationToken);
+        }
+        else if (active is not null)
         {
             var wasRunning = false;
             try
@@ -211,7 +264,50 @@ public sealed class RunExecutor(RunStore store, IAgentRunner agent, IAnalyzer an
     {
         private readonly TaskCompletionSource _done = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        // Пауза и запрос остановки меняются под одним замком: остановка либо застаёт паузу
+        // и прерывает её, либо пауза не начнётся / после неё не будет нового вызова Run
+        private readonly Lock _pauseGate = new();
+        private bool _paused;
+        private bool _stopRequested;
+
         public Guid RunId { get; } = runId;
+
+        // Пауза перед повтором Run. false - остановку уже запросили, повторять не нужно.
+        // Если остановку запросят во время паузы, она прервётся OperationCanceledException
+        public async Task<bool> PauseAsync(TimeSpan delay, TimeProvider time, CancellationToken cancellationToken)
+        {
+            lock (_pauseGate)
+            {
+                if (_stopRequested)
+                    return false;
+                _paused = true;
+            }
+
+            await Task.Delay(delay, time, cancellationToken);
+
+            lock (_pauseGate)
+            {
+                _paused = false;
+                return !_stopRequested;
+            }
+        }
+
+        // Отмечает запрос остановки. true - прогон стоял на паузе между попытками:
+        // пауза прервана, агент этот прогон не исполняет
+        public bool RequestStop()
+        {
+            bool paused;
+            lock (_pauseGate)
+            {
+                _stopRequested = true;
+                paused = _paused;
+            }
+
+            // Отмена вне замка: продолжение прогона может выполниться прямо в Cancel
+            if (paused)
+                Cancel();
+            return paused;
+        }
 
         public void MarkDone() => _done.TrySetResult();
 
