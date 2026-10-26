@@ -1,11 +1,14 @@
 import { Suspense, lazy } from 'react'
 import { Link, NavLink, Route, Routes, useLocation } from 'react-router'
 import { DEMO_RUN_ID } from './demo/demoRun'
-import { useRecentRuns } from './run/recent'
+import { refreshRecent, useRecentRuns } from './run/recent'
 import { ScenarioPage } from './scenario/ScenarioPage'
 
 // Графики тяжёлые, грузим их только на странице прогона
 const RunPage = lazy(() => import('./run/RunPage').then((m) => ({ default: m.RunPage })))
+
+// На узком экране панель над формой: показываем только первые прогоны
+const RECENT_NARROW = 5
 
 const demos = [
   { id: DEMO_RUN_ID, label: 'Предел найден' },
@@ -25,17 +28,26 @@ export function App() {
         <Link to="/" className="brand">Bendmark</Link>
         <NavLink to="/" end className="new-run">Новый прогон</NavLink>
 
-        {recent.length > 0 && (
-          <>
-            <span className="nav-group">Недавние</span>
-            {recent.map((run) => (
-              <NavLink key={run.id} to={`/runs/${run.id}`} className="recent" title={run.id}>
-                <span className={`dot status-${run.status}`} aria-hidden />
-                <span className="recent-name">{run.name}</span>
-              </NavLink>
-            ))}
-          </>
+        <span className="nav-group">Недавние</span>
+        {recent.kind === 'loading' && <span className="nav-note">Загружаем…</span>}
+        {recent.kind === 'error' && (
+          <span className="nav-note">
+            {recent.message}{' '}
+            <button type="button" className="link" onClick={() => refreshRecent()}>Повторить</button>
+          </span>
         )}
+        {recent.kind === 'ready' && recent.runs.length === 0 && <span className="nav-note">Прогонов пока нет</span>}
+        {recent.kind === 'ready' && recent.runs.map((run, i) => (
+          <NavLink
+            key={run.id}
+            to={`/runs/${run.id}`}
+            className={i < RECENT_NARROW ? 'recent' : 'recent recent-extra'}
+            title={run.id}
+          >
+            <span className={`dot status-${run.status}`} aria-hidden />
+            <span className="recent-name">{run.scenario_name}</span>
+          </NavLink>
+        ))}
 
         <span className="nav-group">Демо</span>
         {demos.map((demo) => (

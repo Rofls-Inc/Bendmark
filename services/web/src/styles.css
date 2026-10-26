@@ -97,11 +97,25 @@ h2 {
   text-transform: uppercase;
 }
 
+.nav-note {
+  padding: 4px 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .sidebar .recent {
   display: flex;
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+button.link {
+  padding: 0;
+  color: var(--accent);
+  font-size: inherit;
+  border: none;
+  text-decoration: underline;
 }
 
 .recent-name {
@@ -209,6 +223,10 @@ main {
   .sidebar .brand,
   .nav-group {
     margin: 0 8px 0 0;
+  }
+
+  .sidebar .recent-extra {
+    display: none;
   }
 
   .page {

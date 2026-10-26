@@ -4,7 +4,6 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Scenario } from '../api/types'
-import { loadRecent } from '../run/recent'
 import { json, mockFetch } from '../test/fetch'
 import { ScenarioPage } from './ScenarioPage'
 
@@ -30,17 +29,20 @@ afterEach(() => {
 
 describe('ScenarioPage', () => {
   it('создаёт прогон и переходит на его страницу', async () => {
-    const calls = mockFetch(() => json(201, { id: 'run-1', status: 'created' }))
+    const calls = mockFetch((call) => call.method === 'POST'
+      ? json(201, { id: 'run-1', status: 'created' })
+      : json(200, { runs: [], next_before: null }))
     renderPage()
 
     await userEvent.click(screen.getByRole('button', { name: 'Запустить' }))
 
     expect(await screen.findByText('страница прогона run-1')).toBeTruthy()
-    expect(calls).toHaveLength(1)
     expect(calls[0]).toMatchObject({ method: 'POST', url: '/api/runs' })
     expect(calls[0].body).toMatchObject({ name: 'abstock-home-ramp', target: { method: 'GET' } })
     expect((calls[0].body as Scenario).steps).toHaveLength(7)
-    expect(loadRecent()[0]).toMatchObject({ id: 'run-1', name: 'abstock-home-ramp' })
+    // Новый прогон появится в «Недавних»: список перечитан с координатора
+    expect(calls[1]).toMatchObject({ method: 'GET', url: '/api/runs?limit=10' })
+    expect(calls).toHaveLength(2)
   })
 
   it('ошибки 400 показывает у полей', async () => {
