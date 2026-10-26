@@ -9,6 +9,8 @@ on:
       - "services/web/**"
       - "proto/**"
       - "testdata/results/**"
+      - "testdata/scenarios/smoke.json"
+      - "scripts/compose_smoke.py"
       - "examples/scenario.yaml"
       - "docker-compose.yml"
       - ".github/workflows/compose.yml"
@@ -21,6 +23,8 @@ on:
       - "services/web/**"
       - "proto/**"
       - "testdata/results/**"
+      - "testdata/scenarios/smoke.json"
+      - "scripts/compose_smoke.py"
       - "examples/scenario.yaml"
       - "docker-compose.yml"
       - ".github/workflows/compose.yml"
@@ -41,7 +45,7 @@ jobs:
         run: docker compose --profile tools build
 
       - name: Start stack
-        # --wait ждёт, пока healthcheck'и abstock, analyzer и coordinator станут healthy, а web запустится
+        # --wait ждёт healthy у abstock, agent, analyzer и coordinator; web должен запуститься
         run: docker compose up -d --wait --wait-timeout 180
 
       - name: Coordinator is healthy
@@ -54,22 +58,10 @@ jobs:
         # nginx снимает префикс /api и передаёт запрос координатору
         run: curl --fail --silent --show-error http://localhost:5173/api/health
 
-      - name: Coordinator creates a run
-        run: |
-          code=$(curl -s -o response.json -w '%{http_code}' -X POST http://localhost:5080/runs \
-            -H "Content-Type: application/yaml" --data-binary "@examples/scenario.yaml")
-          cat response.json; echo
-          test "$code" = 201
-
-      - name: Agent reaches abstock
-        timeout-minutes: 2
-        # Агент возвращает 0 даже при ошибках запросов, поэтому проверяем сам result.json
-        run: |
-          docker compose run --rm -T agent http://abstock:8080/ --steps 10:2 > result.json
-          cat result.json
-          jq -e '.steps | length == 1 and .[0].request_count > 0
-                 and .[0].errors.count == 0 and .[0].skipped_count == 0' result.json
-
+      - name: Full run through coordinator and web proxy
+        timeout-minutes: 1
+        # Два коротких прогона: HTTP API координатора и /api веба. Общий таймаут — 45 с.
+        run: python3 scripts/compose_smoke.py
 
       - name: Analyzer service answers FindLimit
         # Внутри контейнера: сгенерированный код лежит в /app/generated
@@ -95,6 +87,31 @@ jobs:
 
       - name: Analyzer CLI reads a result
         run: docker compose run --rm analyzer-cli testdata/results/limit-found.json
+
+      - name: Smoke rejects an unavailable agent
+        timeout-minutes: 1
+        run: |
+          broken_container="bendmark-smoke-broken-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cleanup() {
+            docker logs "$broken_container" || true
+            docker rm -f "$broken_container" >/dev/null || true
+          }
+          trap cleanup EXIT
+          # Свой порт и БД: основной координатор и его прогоны остаются доступны.
+          docker compose run --rm --no-deps -d --name "$broken_container" \
+            -p 127.0.0.1:5081:5080 \
+            -e Agent__Address=http://127.0.0.1:1 \
+            -e Storage__Path=/tmp/smoke-negative.db coordinator
+          curl --fail --silent --show-error --retry 10 --retry-delay 1 \
+            --retry-connrefused --max-time 2 http://localhost:5081/health
+          if python3 scripts/compose_smoke.py --base-url http://localhost:5081 --timeout 10 > broken-agent.log 2>&1; then
+            cat broken-agent.log
+            echo '::error::Smoke accepted a broken agent connection'
+            exit 1
+          fi
+          cat broken-agent.log
+          # Ошибка должна быть после создания прогона, а не из-за недоступности HTTP API.
+          grep -q 'status=failed' broken-agent.log
 
       - name: Logs
         if: failure()
