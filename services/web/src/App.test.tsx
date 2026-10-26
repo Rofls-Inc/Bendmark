@@ -62,4 +62,14 @@ describe('боковая панель «Недавние»', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Повторить' }))
     expect(await screen.findByText('Прогонов пока нет')).toBeTruthy()
   })
+
+  it('Escape закрывает меню', async () => {
+    mockFetch(() => json(200, { runs: [], next_before: null }))
+    renderApp()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Меню' }))
+    expect(screen.getByRole('button', { name: 'Закрыть' }).getAttribute('aria-expanded')).toBe('true')
+    await userEvent.keyboard('{Escape}')
+    expect(screen.getByRole('button', { name: 'Меню' }).getAttribute('aria-expanded')).toBe('false')
+  })
 })

@@ -247,9 +247,7 @@ function Report({ run, offline }: PageProps) {
             </section>
             <section className="panel">
               <h2>Диагноз</h2>
-              <p className="placeholder">
-                Причину отказа (пул соединений, CPU, база) анализатор научится называть в следующей версии.
-              </p>
+              <DiagnosisNote analysis={analysis} />
             </section>
           </div>
         </div>
@@ -330,6 +328,23 @@ function Reasons({ analysis }: { analysis: Run['analysis'] }) {
       </ul>
     )
   return <p className="placeholder">{analysis.status === 'not_found' ? 'Ни одна ступень не отказала.' : analysis.message}</p>
+}
+
+// Пока только текст анализатора; причины и уверенность по макету — отдельной задачей
+function DiagnosisNote({ analysis }: { analysis: Run['analysis'] }) {
+  const diagnosis = analysis?.diagnosis
+  if (!diagnosis)
+    return <p className="placeholder">Анализатор не поставил диагноз для этого прогона.</p>
+  return (
+    <>
+      <p>{diagnosis.explanation}</p>
+      {diagnosis.evidence.length > 0 && (
+        <ul className="reasons">
+          {diagnosis.evidence.map((e) => <li key={e}>{e}</li>)}
+        </ul>
+      )}
+    </>
+  )
 }
 
 function SkippedNote({ step }: { step: number }) {

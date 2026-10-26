@@ -46,6 +46,17 @@ export interface Analysis {
   analyzed_steps: number
   // Итог для человека от координатора
   message: string
+  // Диагноз анализатора; null — анализатор не ответил или старый, без диагноза
+  diagnosis?: Diagnosis | null
+}
+
+export interface Diagnosis {
+  status: 'diagnosed' | 'no_limit' | 'too_few_steps'
+  // cause и confidence — только при diagnosed
+  cause: 'rejecting' | 'slow_responses' | 'saturation' | 'inconclusive' | null
+  confidence: 'low' | 'medium' | 'high' | null
+  explanation: string
+  evidence: string[]
 }
 
 export interface Run {

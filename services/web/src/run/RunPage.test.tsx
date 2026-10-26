@@ -225,5 +225,21 @@ describe('RunPage', () => {
     expect(card.textContent).toContain('350')
     expect(card.textContent).toContain('Отказ на нагрузке')
     expect(screen.getByRole('heading', { name: 'Диагноз' })).toBeTruthy()
+    expect(screen.getByText('Анализатор не поставил диагноз для этого прогона.')).toBeTruthy()
+  })
+
+  it('диагноз показывает объяснение и доводы анализатора', async () => {
+    const diagnosis = {
+      status: 'diagnosed', cause: 'rejecting', confidence: 'high',
+      explanation: 'Сервис отклоняет нагрузку',
+      evidence: ['ступень 7: ошибок 2.4 %'],
+    }
+    mockFetch((call) => call.url.startsWith('/api/runs?')
+      ? json(200, { runs: [], next_before: null })
+      : json(200, { ...demoRun, id: ID, analysis: { ...demoRun.analysis, diagnosis } }))
+    renderPage()
+
+    expect(await screen.findByText('Сервис отклоняет нагрузку')).toBeTruthy()
+    expect(screen.getByText('ступень 7: ошибок 2.4 %')).toBeTruthy()
   })
 })

@@ -62,7 +62,11 @@ function Sidebar() {
   const open = openedAt === location.key
 
   return (
-    <nav className={`sidebar${open ? ' open' : ''}`} aria-label="Навигация">
+    <nav
+      className={`sidebar${open ? ' open' : ''}`}
+      aria-label="Навигация"
+      onKeyDown={(e) => { if (e.key === 'Escape' && open) setOpenedAt(null) }}
+    >
       <div className="sidebar-head">
         <Link to="/" className="brand"><Logo />Bendmark</Link>
         <button

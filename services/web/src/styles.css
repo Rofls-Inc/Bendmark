@@ -17,8 +17,8 @@
   /* Текст */
   --text-1: #e6e8eb;
   --text-2: #a2a8b0;
-  --text-3: #6f767f;
-  --text-4: #4b5158;
+  --text-3: #80878f;
+  --text-4: #4b5158; /* только линии и маркеры: для текста контраста не хватает */
 
   /* Акцент */
   --accent: #c8f169;
@@ -299,7 +299,7 @@ main {
 .sidebar-foot {
   margin-top: auto;
   padding: var(--s-4) var(--s-2) 0;
-  color: var(--text-4);
+  color: var(--text-3);
   font-size: var(--fs-micro);
 }
 
@@ -968,7 +968,7 @@ button:disabled:hover {
 }
 
 .steps td .muted {
-  color: var(--text-4);
+  color: var(--text-3);
 }
 
 .steps td.warn {
