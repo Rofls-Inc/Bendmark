@@ -136,7 +136,7 @@ function Live({ run, offline, onStopped }: PageProps & { onStopped: (run: Run) =
           <section className="panel">
             <div className="panel-head">
               <h2>Задержка</h2>
-              <span className="hint">мс, логарифмическая ось</span>
+              <span className="hint">мс по ступеням</span>
             </div>
             <LatencyChart steps={steps} plannedTargets={planned} />
           </section>
@@ -224,7 +224,7 @@ function Report({ run, offline }: PageProps) {
             <section className="panel">
               <div className="panel-head">
                 <h2>Кривая производительности</h2>
-                <span className="hint">пропускная слева · p99 справа, лог</span>
+                <span className="hint">сверху пропускная · снизу p99</span>
               </div>
               <PerformanceChart
                 steps={steps}

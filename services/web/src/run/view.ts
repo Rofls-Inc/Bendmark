@@ -6,7 +6,7 @@ export const P99_THRESHOLD_MS = 500
 export interface ChartPoint {
   target: number
   throughput: number
-  // null, если на ступени не было измерений: на логарифмической оси ноль не нарисовать
+  // null, если на ступени не было измерений: ноль выглядел бы как мгновенный ответ
   p99: number | null
 }
 
@@ -27,37 +27,33 @@ export interface Axis {
 
 // Ось нагрузки от нуля до круглого значения с запасом над максимумом
 export function rpsAxis(points: ChartPoint[]): Axis {
-  const max = Math.max(1, ...points.map((p) => Math.max(p.target, p.throughput)))
+  return linearAxis(Math.max(1, ...points.map((p) => Math.max(p.target, p.throughput))))
+}
+
+// Ось p99 от нуля, линейная: равные деления — равные миллисекунды. Порог всегда попадает на ось.
+export function p99Axis(points: ChartPoint[], threshold = P99_THRESHOLD_MS): Axis {
+  return latencyMax(points.map((p) => p.p99), threshold)
+}
+
+// То же для всех трёх перцентилей сразу
+export function latencyAxis(points: LatencyPoint[], threshold = P99_THRESHOLD_MS): Axis {
+  return latencyMax(points.flatMap((p) => [p.p50, p.p90, p.p99]), threshold)
+}
+
+function latencyMax(raw: (number | null)[], threshold: number): Axis {
+  return linearAxis(Math.max(threshold, ...raw.filter((v): v is number => v !== null)))
+}
+
+function linearAxis(max: number): Axis {
   const step = niceStep(max / 4)
   const top = Math.ceil((max * 1.05) / step) * step
   return { domain: [0, top], ticks: Array.from({ length: Math.round(top / step) + 1 }, (_, i) => i * step) }
 }
 
-// Логарифмическая ось p99 по декадам с делениями 1-2-5. Порог всегда попадает на ось.
-export function p99Axis(points: ChartPoint[], threshold = P99_THRESHOLD_MS): Axis {
-  return logAxis(points.map((p) => p.p99), threshold)
-}
-
-// То же для всех трёх перцентилей сразу
-export function latencyAxis(points: LatencyPoint[], threshold = P99_THRESHOLD_MS): Axis {
-  return logAxis(points.flatMap((p) => [p.p50, p.p90, p.p99]), threshold)
-}
-
-function logAxis(raw: (number | null)[], threshold: number): Axis {
-  const values = raw.filter((v): v is number => v !== null)
-  const lo = 10 ** Math.floor(Math.log10(Math.min(threshold, ...values)))
-  const hi = 10 ** Math.ceil(Math.log10(Math.max(threshold, ...values) * 1.05))
-  const ticks: number[] = []
-  for (let decade = lo; decade < hi; decade *= 10)
-    ticks.push(decade, decade * 2, decade * 5)
-  ticks.push(hi)
-  return { domain: [lo, hi], ticks }
-}
-
 function niceStep(raw: number): number {
   const magnitude = 10 ** Math.floor(Math.log10(raw))
   const normalized = raw / magnitude
-  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10
+  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10
   return nice * magnitude
 }
 
@@ -146,7 +142,7 @@ export function formatNumber(value: number, digits = 0): string {
 
 export interface LatencyPoint {
   target: number
-  // null, если на ступени не было измерений: на логарифмической оси ноль не нарисовать
+  // null, если на ступени не было измерений: ноль выглядел бы как мгновенный ответ
   p50: number | null
   p90: number | null
   p99: number | null

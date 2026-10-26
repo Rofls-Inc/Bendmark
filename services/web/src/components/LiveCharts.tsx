@@ -33,7 +33,7 @@ function xAxis(plannedTargets: number[]) {
   )
 }
 
-// Задержка по ступеням: p50, p90, p99 на логарифмической оси и порог отказа
+// Задержка по ступеням: p50, p90, p99 и порог отказа
 export function LatencyChart({ steps, plannedTargets }: Props) {
   const points = toLatencyPoints(steps)
   const axis = latencyAxis(points)
@@ -43,7 +43,7 @@ export function LatencyChart({ steps, plannedTargets }: Props) {
       <LineChart data={points} margin={{ top: 16, right: 16, bottom: 8, left: 0 }}>
         <CartesianGrid {...gridProps} />
         {xAxis(plannedTargets)}
-        <YAxis scale="log" domain={axis.domain} ticks={axis.ticks} {...axisProps} width={48} />
+        <YAxis domain={axis.domain} ticks={axis.ticks} {...axisProps} width={48} />
         <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
         <Legend {...legendProps} />
         <ReferenceLine

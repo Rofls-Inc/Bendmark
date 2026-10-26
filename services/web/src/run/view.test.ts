@@ -169,17 +169,17 @@ describe('оси графика', () => {
     expect(rpsAxis(points)).toEqual({ domain: [0, 500], ticks: [0, 100, 200, 300, 400, 500] })
   })
 
-  it('ось p99 по декадам и с порогом', () => {
-    expect(p99Axis(points)).toEqual({ domain: [10, 1000], ticks: [10, 20, 50, 100, 200, 500, 1000] })
+  it('ось p99 линейная от нуля, деления через равные миллисекунды', () => {
+    expect(p99Axis(points)).toEqual({ domain: [0, 1000], ticks: [0, 250, 500, 750, 1000] })
   })
 
   it('порог попадает на ось, даже если все p99 намного ниже', () => {
     const fast = toChartPoints([step(1, { latency_ms: { p50: 1, p90: 2, p99: 3 } })])
-    expect(p99Axis(fast).domain).toEqual([1, 1000])
+    expect(p99Axis(fast).domain).toEqual([0, 600])
   })
 
   it('без измерений p99 ось строится по порогу', () => {
-    expect(p99Axis([]).domain).toEqual([100, 1000])
+    expect(p99Axis([]).domain).toEqual([0, 600])
   })
 })
 
@@ -192,9 +192,9 @@ describe('toLatencyPoints', () => {
     ])
   })
 
-  it('ось задержки захватывает p50, а не только p99', () => {
-    const points = toLatencyPoints([step(1, { latency_ms: { p50: 3, p90: 20, p99: 30 } })])
-    expect(latencyAxis(points).domain).toEqual([1, 1000])
+  it('ось задержки линейная от нуля и вмещает p99 выше порога', () => {
+    const points = toLatencyPoints([step(1, { latency_ms: { p50: 3, p90: 20, p99: 900 } })])
+    expect(latencyAxis(points).domain).toEqual([0, 1000])
   })
 })
 

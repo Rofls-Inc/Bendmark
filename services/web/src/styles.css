@@ -39,7 +39,7 @@
 
   /* Серии графиков */
   --series-throughput: #78aee0;
-  --series-target: var(--text-4);
+  --series-target: var(--text-3);
   --series-p50: var(--text-3);
   --series-p90: var(--text-2);
   --series-p99: #e8906b;
