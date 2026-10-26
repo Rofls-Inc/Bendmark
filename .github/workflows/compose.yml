@@ -87,10 +87,15 @@ jobs:
                   errors=common_pb2.RequestErrors())
 
           stub = analyzer_pb2_grpc.AnalyzerServiceStub(grpc.insecure_channel("127.0.0.1:50052"))
-          request = analyzer_pb2.FindLimitRequest(steps=[step(1, 100, 20), step(2, 200, 900)])
-          limit = stub.FindLimit(request, timeout=5).limit
-          print(limit)
-          assert limit.found and limit.limit_rps == 100 and limit.failed_step_index == 2
+          # Отказ на ступенях 3 и 4 подряд: предел подтверждён, до него две ступени - есть диагноз
+          request = analyzer_pb2.FindLimitRequest(
+              steps=[step(1, 100, 20), step(2, 200, 30), step(3, 300, 900), step(4, 400, 950)])
+          response = stub.FindLimit(request, timeout=5)
+          print(response)
+          limit, diagnosis = response.limit, response.diagnosis
+          assert limit.found and limit.confirmed and limit.limit_rps == 200 and limit.failed_step_index == 3
+          assert diagnosis.status == analyzer_pb2.DIAGNOSIS_STATUS_DIAGNOSED
+          assert diagnosis.cause == analyzer_pb2.CAUSE_SLOW_RESPONSES and diagnosis.evidence
           EOF
 
       - name: Analyzer CLI reads a result

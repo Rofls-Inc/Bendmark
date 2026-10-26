@@ -1,0 +1,74 @@
+{
+  "scenario_name": "saturation-high-latency",
+  "status": "completed",
+  "steps": [
+    {
+      "index": 1,
+      "target_rps": 100,
+      "duration_seconds": 10,
+      "request_count": 1000,
+      "throughput_rps": 100.0,
+      "latency_ms": {
+        "p50": 40,
+        "p90": 90,
+        "p99": 150
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      },
+      "skipped_count": 0
+    },
+    {
+      "index": 2,
+      "target_rps": 200,
+      "duration_seconds": 10,
+      "request_count": 2000,
+      "throughput_rps": 200.0,
+      "latency_ms": {
+        "p50": 70,
+        "p90": 180,
+        "p99": 300
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      },
+      "skipped_count": 0
+    },
+    {
+      "index": 3,
+      "target_rps": 300,
+      "duration_seconds": 10,
+      "request_count": 2400,
+      "throughput_rps": 240.0,
+      "latency_ms": {
+        "p50": 120,
+        "p90": 330,
+        "p99": 520
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      },
+      "skipped_count": 0
+    },
+    {
+      "index": 4,
+      "target_rps": 400,
+      "duration_seconds": 10,
+      "request_count": 2450,
+      "throughput_rps": 245.0,
+      "latency_ms": {
+        "p50": 130,
+        "p90": 360,
+        "p99": 560
+      },
+      "errors": {
+        "count": 2,
+        "rate_percent": 0.1
+      },
+      "skipped_count": 0
+    }
+  ]
+}

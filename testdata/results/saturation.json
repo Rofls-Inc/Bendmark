@@ -1,0 +1,91 @@
+{
+  "scenario_name": "saturation",
+  "status": "completed",
+  "steps": [
+    {
+      "index": 1,
+      "target_rps": 100,
+      "duration_seconds": 10,
+      "request_count": 1000,
+      "throughput_rps": 100.0,
+      "latency_ms": {
+        "p50": 10,
+        "p90": 15,
+        "p99": 20
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      },
+      "skipped_count": 0
+    },
+    {
+      "index": 2,
+      "target_rps": 200,
+      "duration_seconds": 10,
+      "request_count": 1980,
+      "throughput_rps": 198.0,
+      "latency_ms": {
+        "p50": 12,
+        "p90": 20,
+        "p99": 30
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      },
+      "skipped_count": 0
+    },
+    {
+      "index": 3,
+      "target_rps": 300,
+      "duration_seconds": 10,
+      "request_count": 2600,
+      "throughput_rps": 260.0,
+      "latency_ms": {
+        "p50": 15,
+        "p90": 30,
+        "p99": 45
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      },
+      "skipped_count": 0
+    },
+    {
+      "index": 4,
+      "target_rps": 400,
+      "duration_seconds": 10,
+      "request_count": 2800,
+      "throughput_rps": 280.0,
+      "latency_ms": {
+        "p50": 20,
+        "p90": 45,
+        "p99": 70
+      },
+      "errors": {
+        "count": 3,
+        "rate_percent": 0.1
+      },
+      "skipped_count": 0
+    },
+    {
+      "index": 5,
+      "target_rps": 500,
+      "duration_seconds": 10,
+      "request_count": 2850,
+      "throughput_rps": 285.0,
+      "latency_ms": {
+        "p50": 25,
+        "p90": 60,
+        "p99": 100
+      },
+      "errors": {
+        "count": 4,
+        "rate_percent": 0.1
+      },
+      "skipped_count": 0
+    }
+  ]
+}
