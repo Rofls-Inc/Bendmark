@@ -122,6 +122,10 @@ public sealed class FakeAgentRunner : IAgentRunner
 
     public IReadOnlyCollection<Guid> StopCalls => _stopCalls;
 
+    // false - агент занят чужим прогоном: Stop отвечает was_running=false и не трогает
+    // поток Run, тот завершается тем, что отправит тест
+    public bool StopFindsRun { get; set; } = true;
+
     public void SendStep(StepResultDto step) => _events.Writer.TryWrite(step);
 
     public void Finish() => _events.Writer.TryWrite(Done);
@@ -155,6 +159,8 @@ public sealed class FakeAgentRunner : IAgentRunner
     public Task<bool> StopAsync(Guid runId, CancellationToken cancellationToken)
     {
         _stopCalls.Enqueue(runId);
+        if (!StopFindsRun)
+            return Task.FromResult(false);
         Fail(StatusCode.Cancelled, "остановлен");
         return Task.FromResult(true);
     }

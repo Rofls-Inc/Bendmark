@@ -208,6 +208,38 @@ public class RunLifecycleTests
         Assert.Equal("aborted", Api.Status(await Api.GetRunAsync(client, id)));
     }
 
+    // Stop пришёл, пока шёл вызов Run, а агент ответил "занят". Итог не зависит от того,
+    // промежуточная это попытка (1) или последняя (3)
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task Stop_during_call_rejected_as_busy_aborts_on_any_attempt(int stopAttempt)
+    {
+        await using var factory = new CoordinatorFactory { BusyRetryCount = 2 };
+        factory.Agent.StopFindsRun = false;
+        var client = factory.CreateClient();
+        var id = await Api.CreateRunAsync(client);
+
+        for (var attempt = 1; attempt < stopAttempt; attempt++)
+        {
+            await factory.Agent.WaitStartedAsync();
+            factory.Agent.Fail(StatusCode.ResourceExhausted, "занят");
+        }
+        await factory.Agent.WaitStartedAsync();
+
+        var stopping = Api.StopAsync(client, id);
+        await WaitUntilAsync(() => factory.Agent.StopCalls.Count == 1);
+        factory.Agent.Fail(StatusCode.ResourceExhausted, "занят");
+
+        using var response = await stopping;
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var stopped = await Api.ReadJsonAsync(response);
+        Assert.Equal("aborted", Api.Status(stopped));
+        Assert.Equal(JsonValueKind.Null, stopped.GetProperty("error").ValueKind);
+        Assert.Equal(0, Api.StepCount(stopped));
+        Assert.Equal(Enumerable.Repeat(id, stopAttempt), factory.Agent.RunCalls);
+    }
+
     [Fact]
     public async Task Deadline_exceeded_aborts_run_with_completed_steps()
     {
@@ -373,6 +405,17 @@ public class RunLifecycleTests
 
     private static Task<JsonElement> WaitForFinishAsync(HttpClient client, Guid id) =>
         Api.WaitForAsync(client, id, run => Api.Status(run) is "completed" or "failed" or "aborted");
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + FakeAgentRunner.Timeout;
+        while (!condition())
+        {
+            if (DateTime.UtcNow > deadline)
+                Assert.Fail("Условие не выполнилось за отведённое время");
+            await Task.Delay(20);
+        }
+    }
 
     private static void SendRampSteps(FakeAgentRunner agent, int skip = 0, int? take = null)
     {

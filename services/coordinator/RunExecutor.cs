@@ -145,6 +145,14 @@ public sealed class RunExecutor(
                 {
                     if (attempt == attempts)
                     {
+                        // Остановку запросили, пока шёл последний вызов: итог как на промежуточной
+                        // попытке (там PauseAsync вернёт false), иначе он зависел бы от номера попытки
+                        if (store.IsStopRequested(run.Id))
+                        {
+                            logger.LogInformation("Прогон {RunId} остановлен, агент был занят до последней попытки", run.Id);
+                            return (RunStatus.Aborted, null);
+                        }
+
                         logger.LogWarning("Агент занят: прогон {RunId}, попытка {Attempt} из {Attempts}, повторов больше нет",
                             run.Id, attempt, attempts);
                         return Classify(e.StatusCode, e.Status.Detail,
