@@ -27,6 +27,7 @@ EXPECTED = {
     "p99-threshold.json": (DIAGNOSED, Cause.SLOW_RESPONSES, Confidence.LOW),
     "rejecting.json": (DIAGNOSED, Cause.REJECTING, Confidence.HIGH),
     "saturation.json": (DIAGNOSED, Cause.SATURATION, Confidence.HIGH),
+    "saturation-high-latency.json": (DIAGNOSED, Cause.SATURATION, Confidence.HIGH),
     "slow-responses.json": (DIAGNOSED, Cause.SLOW_RESPONSES, Confidence.HIGH),
     "throughput-stall.json": (DIAGNOSED, Cause.SATURATION, Confidence.LOW),
     "zero-requests.json": ValueError,
@@ -93,7 +94,43 @@ def test_rejecting_evidence_names_errors_and_low_latency():
 def test_slow_responses_sees_latency_ceiling():
     _, diagnosis = analyze(load_result(RESULTS / "slow-responses.json"))
     assert "ступень 4: p99 60 → 5000 мс - скачок в 83.3 раза" in diagnosis.evidence
-    assert "ступень 5: p99 5000 → 5000 мс - держится у потолка, как на предыдущей ступени" in diagnosis.evidence
+    assert (
+        "ступень 5: p99 5000 → 5000 мс - держится у потолка, как на предыдущей ступени, "
+        "запросы упираются в таймаут"
+    ) in diagnosis.evidence
+
+
+@pytest.mark.parametrize("last_p99", [225, 250])
+def test_smooth_saturation_above_p99_threshold_is_not_a_ceiling(last_p99):
+    # Случай из ревью #57: порог 200 мс, p99 120 -> 180 -> 210 -> 225/250, пропускная встала
+    # на 210-212, ошибок нет. Без таймаутов плато p99 - насыщение, а не медленные ответы,
+    # и разница в 15 или 40 мс прироста не должна менять диагноз
+    rows = steps((100, 100, 120), (200, 200, 180), (300, 210, 210), (400, 212, last_p99))
+    limit = find_limit(rows, p99_threshold_ms=200)
+    diagnosis = diagnose(rows, limit, p99_threshold_ms=200)
+
+    assert limit.confirmed
+    assert (diagnosis.cause, diagnosis.confidence) == (Cause.SATURATION, Confidence.HIGH)
+    assert not any("потолка" in line for line in diagnosis.evidence)
+
+
+def test_saturation_above_threshold_fixture_is_not_a_ceiling():
+    _, diagnosis = analyze(load_result(RESULTS / "saturation-high-latency.json"))
+    assert "ступень 4: p99 520 → 560 мс - плавный рост выше порога 500 мс" in diagnosis.evidence
+
+
+@pytest.mark.parametrize("error_percent, cause", [(0.9, Cause.SATURATION), (1.0, Cause.SLOW_RESPONSES)])
+def test_ceiling_needs_at_least_one_percent_timeouts(error_percent, cause):
+    # p99 у таймаута значит, что таймаутом кончился хотя бы 1 % запросов
+    # 2000 запросов на ступени 4: 0.9 и 1.0 % - ровно 18 и 20 ошибок
+    rows = steps((100, 100, 120), (200, 200, 180), (300, 210, 5000, 0.5), (400, 200, 5000, error_percent))
+    limit = find_limit(rows, p99_threshold_ms=500, max_error_percent=5)
+    diagnosis = diagnose(rows, limit, p99_threshold_ms=500, max_error_percent=5)
+
+    assert limit.confirmed
+    # Ступень 3 - скачок p99, ступень 4 - потолок или плавный рост
+    expected = Cause.SLOW_RESPONSES if cause is Cause.SLOW_RESPONSES else Cause.INCONCLUSIVE
+    assert diagnosis.cause is expected
 
 
 def test_latency_jump_without_errors_is_medium():

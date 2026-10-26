@@ -16,6 +16,10 @@ P99_JUMP_RATIO = 3.0
 # p99 двух провальных ступеней выше порога и отличается не больше чем на эту долю:
 # задержка упёрлась в потолок (таймаут агента)
 P99_CEILING_TOLERANCE = 0.1
+# Если p99 стоит у таймаута, то таймаутом кончился хотя бы 1 % запросов, а таймауты
+# входят в errors. Поэтому плато p99 с меньшей долей ошибок - не таймаут, а плавный
+# рост при насыщении. Порог не зависит от --max-error-percent: он следует из определения p99
+CEILING_MIN_ERROR_PERCENT = 1.0
 # Сколько ступеней нужно до первой провальной, чтобы было с чем сравнивать
 MIN_STEPS_BEFORE_FAILURE = 2
 
@@ -71,7 +75,8 @@ class _Signs:
     latency_high: bool
     stall: bool
     jump: bool
-    # p99 вместе с предыдущей провальной ступенью упёрся в потолок
+    # p99 вместе с предыдущей провальной ступенью упёрся в потолок, и ошибок
+    # (таймаутов) не меньше CEILING_MIN_ERROR_PERCENT
     ceiling: bool
 
 
@@ -144,6 +149,7 @@ def _signs(
         and latency_high
         and previous_failed.latency_high
         and abs(step.p99_ms - previous.p99_ms) <= P99_CEILING_TOLERANCE * previous.p99_ms
+        and error_percent >= CEILING_MIN_ERROR_PERCENT
     )
     return _Signs(
         step=step,
@@ -193,7 +199,7 @@ def _evidence(sign: _Signs, p99_threshold_ms: float, max_error_percent: float) -
         )
     latency = f"ступень {step.index}: p99 {previous.p99_ms:g} → {step.p99_ms:g} мс"
     if sign.ceiling:
-        latency += " - держится у потолка, как на предыдущей ступени"
+        latency += " - держится у потолка, как на предыдущей ступени, запросы упираются в таймаут"
     elif sign.jump:
         latency += f" - скачок в {step.p99_ms / previous.p99_ms:.1f} раза"
     elif sign.latency_high:
