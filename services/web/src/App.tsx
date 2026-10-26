@@ -107,8 +107,6 @@ function Sidebar() {
           </NavLink>
         ))}
       </div>
-
-      <p className="sidebar-foot">Bendmark · учебный проект СПбГУ</p>
     </nav>
   )
 }

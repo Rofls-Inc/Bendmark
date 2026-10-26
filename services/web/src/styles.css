@@ -1,4 +1,4 @@
-/* Дизайн Bendmark: холодный графит, тонкие линии, один акцент - «фосфор».
+/* Дизайн Bendmark: холодный графит, тонкие линии, один акцент - лаванда.
    Акцентом отмечено только главное: основное действие, фокус, активный пункт,
    ход прогона и предел. Остальное - оттенки серого и смысловые цвета статусов. */
 :root {
@@ -21,11 +21,11 @@
   --text-4: #4b5158; /* только линии и маркеры: для текста контраста не хватает */
 
   /* Акцент */
-  --accent: #c8f169;
-  --accent-strong: #d8f78d;
-  --accent-ink: #0b0c0e;
-  --accent-soft: rgba(200, 241, 105, 0.1);
-  --accent-line: rgba(200, 241, 105, 0.45);
+  --accent: #c9a3d6;
+  --accent-strong: #d8bce2;
+  --accent-ink: #1a141c;
+  --accent-soft: rgba(201, 163, 214, 0.12);
+  --accent-line: rgba(201, 163, 214, 0.45);
 
   /* Смысловые цвета */
   --ok: #4fb98a;
@@ -62,7 +62,9 @@
 
   /* Шрифты и размеры */
   --font-ui: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-num: 'JetBrains Mono', ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+  /* Числа - шрифтом интерфейса с цифрами одной ширины; моноширинный только для кода и адресов */
+  --font-num: var(--font-ui);
+  --font-code: 'JetBrains Mono', ui-monospace, 'SF Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
   --fs-hero: 44px;
   --fs-h1: 22px;
   --fs-h2: 14px;
@@ -96,7 +98,10 @@ a {
   color: inherit;
 }
 
-code,
+code {
+  font-family: var(--font-code);
+}
+
 .num {
   font-family: var(--font-num);
   font-variant-numeric: tabular-nums;
@@ -253,10 +258,8 @@ main {
 .nav-group {
   margin: var(--s-5) var(--s-2) var(--s-1);
   color: var(--text-3);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-caption);
   font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .nav-note {
@@ -296,13 +299,6 @@ main {
   color: var(--warn);
 }
 
-.sidebar-foot {
-  margin-top: auto;
-  padding: var(--s-4) var(--s-2) 0;
-  color: var(--text-3);
-  font-size: var(--fs-micro);
-}
-
 /* Точки статуса */
 
 .dot {
@@ -315,7 +311,6 @@ main {
 
 .dot.status-running {
   background: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .dot.status-completed {
@@ -351,10 +346,8 @@ main {
 .eyebrow {
   margin: 0;
   color: var(--text-3);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-caption);
   font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .meta {
@@ -470,10 +463,8 @@ main {
 
 .label {
   color: var(--text-3);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-caption);
   font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .control {
@@ -491,8 +482,7 @@ main {
 }
 
 .control:focus-within {
-  border-color: var(--accent-line);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--accent);
 }
 
 .field.warning .control {
@@ -627,7 +617,6 @@ button:disabled:hover {
   padding: var(--s-3) var(--s-4);
   font-size: var(--fs-dense);
   border: 1px solid;
-  border-left-width: 2px;
   border-radius: var(--r-md);
 }
 
@@ -635,20 +624,17 @@ button:disabled:hover {
   color: var(--text-1);
   background: var(--bad-soft);
   border-color: var(--bad-line);
-  border-left-color: var(--bad);
 }
 
 .note {
   color: var(--text-2);
   background: var(--surface);
   border-color: var(--line-2);
-  border-left-color: var(--text-3);
 }
 
 .note.warn {
   background: var(--warn-soft);
   border-color: var(--warn-line);
-  border-left-color: var(--warn);
 }
 
 /* Пустое состояние, загрузка, ошибка: один вид на всех экранах */
@@ -800,17 +786,7 @@ button:disabled:hover {
   padding: var(--s-5) var(--s-6);
   background: var(--surface);
   border: 1px solid var(--line-1);
-  border-left: 2px solid var(--text-4);
   border-radius: var(--r-lg);
-}
-
-.limit.kind-limit,
-.limit.kind-lower-bound {
-  border-left-color: var(--accent);
-}
-
-.limit.kind-below-first {
-  border-left-color: var(--bad);
 }
 
 .limit-value {
@@ -940,11 +916,9 @@ button:disabled:hover {
   padding: 0 var(--s-2);
   color: var(--text-3);
   font-family: var(--font-ui);
-  font-size: var(--fs-micro);
+  font-size: var(--fs-caption);
   font-weight: 500;
-  letter-spacing: 0.06em;
   text-align: right;
-  text-transform: uppercase;
   white-space: nowrap;
   border-bottom: 1px solid var(--line-2);
 }
@@ -994,14 +968,6 @@ button:disabled:hover {
 
 .steps tr.verdict-failed .verdict {
   color: var(--bad);
-}
-
-.steps tr.verdict-limit td:first-child {
-  box-shadow: inset 2px 0 var(--accent);
-}
-
-.steps tr.verdict-failed td:first-child {
-  box-shadow: inset 2px 0 var(--bad);
 }
 
 .steps tr.verdict-after td,
@@ -1054,19 +1020,14 @@ button:disabled:hover {
 .reasons {
   display: flex;
   flex-direction: column;
-  gap: var(--s-2);
+  gap: var(--s-1);
   margin: 0;
-  padding: 0;
-  list-style: none;
+  padding-left: var(--s-5);
 }
 
 .reasons li {
-  padding: var(--s-2) var(--s-3);
   color: var(--text-1);
   font-size: var(--fs-dense);
-  background: var(--surface-2);
-  border-left: 2px solid var(--bad);
-  border-radius: 0 var(--r-sm) var(--r-sm) 0;
 }
 
 .placeholder {
@@ -1168,8 +1129,7 @@ button:disabled:hover {
     padding: 0 var(--s-3);
   }
 
-  .sidebar-nav,
-  .sidebar-foot {
+  .sidebar-nav {
     display: none;
   }
 

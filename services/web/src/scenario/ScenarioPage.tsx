@@ -67,7 +67,6 @@ export function ScenarioPage() {
         <div>
           <p className="eyebrow">Новый прогон</p>
           <h1>{form.name.trim() || 'Новый сценарий'}</h1>
-          <p className="meta"><span>сценарий</span><span>честный замер</span></p>
         </div>
         <div className="actions">
           <button type="submit" className="primary" disabled={!built.ok || submitting}>
