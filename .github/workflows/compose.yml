@@ -102,8 +102,9 @@ jobs:
             -p 127.0.0.1:5081:5080 \
             -e Agent__Address=http://127.0.0.1:1 \
             -e Storage__Path=/tmp/smoke-negative.db coordinator
+          # Docker может открыть порт до готовности Kestrel: возможен и сброс соединения.
           curl --fail --silent --show-error --retry 10 --retry-delay 1 \
-            --retry-connrefused --max-time 2 http://localhost:5081/health
+            --retry-all-errors --retry-max-time 20 --max-time 2 http://localhost:5081/health
           if python3 scripts/compose_smoke.py --base-url http://localhost:5081 --timeout 10 > broken-agent.log 2>&1; then
             cat broken-agent.log
             echo '::error::Smoke accepted a broken agent connection'
