@@ -4,6 +4,7 @@ import { resultUrl } from '../api/client'
 import { FINAL_STATUSES, type Run } from '../api/types'
 import { LatencyChart, ThroughputChart } from '../components/LiveCharts'
 import { PerformanceChart } from '../components/PerformanceChart'
+import { State } from '../components/State'
 import { StatusBadge } from '../components/StatusBadge'
 import { StepsTable } from '../components/StepsTable'
 import { StopButton } from '../components/StopButton'
@@ -24,12 +25,13 @@ export function RunPage() {
   const { state, applyRun } = useRun(id)
 
   if (state.kind === 'loading')
-    return <p className="page muted">Загружаем прогон…</p>
+    return <div className="page"><State kind="loading" title="Загружаем прогон…" /></div>
   if (state.kind === 'error')
     return (
       <div className="page">
-        <p className="alert">{state.message}</p>
-        <Link to="/">К сценарию</Link>
+        <State kind="error" title={state.message}>
+          <Link to="/">К новому прогону</Link>
+        </State>
       </div>
     )
 
@@ -44,11 +46,13 @@ function Header({ run, subtitle, actions }: { run: Run; subtitle: string; action
   return (
     <header className="page-header">
       <div>
+        <p className="eyebrow">{subtitle}</p>
         <h1>{run.scenario.name}</h1>
-        <p className="muted">
-          {subtitle} · <StatusBadge status={run.status} /> · {run.scenario.target.method}{' '}
-          <code>{run.scenario.target.url}</code> · {formatDuration(planned)}
-        </p>
+        <div className="meta">
+          <StatusBadge status={run.status} />
+          <span>{run.scenario.target.method} <code>{run.scenario.target.url}</code></span>
+          <span>{run.scenario.steps.length} ступеней · {formatDuration(planned)}</span>
+        </div>
       </div>
       {actions && <div className="actions">{actions}</div>}
     </header>
@@ -98,7 +102,9 @@ function Live({ run, offline, onStopped }: PageProps & { onStopped: (run: Run) =
       {offline && <Offline />}
 
       {run.status === 'created' && (
-        <p className="note">Прогон в очереди и ждёт агента. Координатор запускает прогоны по одному.</p>
+        <State kind="loading" title="Подготовка">
+          <p className="muted">Прогон в очереди и ждёт агента. Координатор запускает прогоны по одному.</p>
+        </State>
       )}
 
       <section className="stats">
@@ -113,7 +119,7 @@ function Live({ run, offline, onStopped }: PageProps & { onStopped: (run: Run) =
         <Stat label="Ошибки" value={last ? formatNumber(last.errors.rate_percent, 1) : '—'} unit="%" hint="последняя ступень" />
       </section>
       <div
-        className="progress"
+        className={`progress${run.status === 'created' ? ' idle' : ''}`}
         role="progressbar"
         aria-label="Ход прогона"
         aria-valuemin={0}
@@ -126,22 +132,33 @@ function Live({ run, offline, onStopped }: PageProps & { onStopped: (run: Run) =
       {skipped !== null && <SkippedNote step={skipped} />}
 
       {steps.length > 0 && (
-        <div className="grid-2 even">
+        <div className="grid even">
           <section className="panel">
-            <h2>Задержка</h2>
+            <div className="panel-head">
+              <h2>Задержка</h2>
+              <span className="hint">мс по ступеням</span>
+            </div>
             <LatencyChart steps={steps} plannedTargets={planned} />
           </section>
           <section className="panel">
-            <h2>Пропускная</h2>
+            <div className="panel-head">
+              <h2>Пропускная</h2>
+              <span className="hint">запр/с против целевой</span>
+            </div>
             <ThroughputChart steps={steps} plannedTargets={planned} />
           </section>
         </div>
       )}
 
       <section className="panel">
-        <h2>Ступени</h2>
+        <div className="panel-head">
+          <h2>Ступени</h2>
+          <span className="hint">{steps.length} из {total}</span>
+        </div>
         {steps.length === 0 && !current ? (
-          <p className="muted">Результаты придут после первой ступени.</p>
+          <State kind="empty" title="Ступеней пока нет">
+            <p className="muted">Результаты придут после первой ступени.</p>
+          </State>
         ) : (
           <StepsTable
             steps={steps}
@@ -158,7 +175,6 @@ function Live({ run, offline, onStopped }: PageProps & { onStopped: (run: Run) =
 function Report({ run, offline }: PageProps) {
   const navigate = useNavigate()
   const { steps, analysis } = run
-  const head = headline(run)
   const failed = analysis?.failed_step_index != null
     ? steps.find((s) => s.index === analysis.failed_step_index)
     : undefined
@@ -194,70 +210,141 @@ function Report({ run, offline }: PageProps) {
         </p>
       )}
 
-      <section className="headline">
-        <div>
-          {head.value != null && (
-            <p className="big">
-              {head.kind === 'lower-bound' && '≥ '}
-              {formatNumber(head.value)}
-              <span className="unit"> запр/с</span>
-            </p>
-          )}
-          <p className={head.value != null ? 'muted' : 'caption'}>{head.caption}</p>
-        </div>
-        {failed && (
-          <p className="muted">
-            отказ на {formatNumber(failed.target_rps)} запр/с · p99 {formatNumber(failed.latency_ms.p99)} мс ·
-            ошибки {formatNumber(failed.errors.rate_percent, 1)} %
-          </p>
-        )}
-      </section>
+      <LimitCard run={run} failed={failed} />
 
       {skipped !== null && <SkippedNote step={skipped} />}
 
       {steps.length === 0 ? (
-        <section className="panel">
-          <p className="muted">
-            Ни одна ступень не завершилась.
-          </p>
-        </section>
+        <State kind="empty" title="Ни одна ступень не завершилась">
+          <p className="muted">Кривой и таблицы нет: агент не прислал ни одной полной ступени.</p>
+        </State>
       ) : (
-        <div className="grid-2 wide-left">
-          <section className="panel">
-            <h2>Кривая производительности</h2>
-            <PerformanceChart
-              steps={steps}
-              limitRps={analysis?.status === 'found' ? analysis.limit_rps : null}
-            />
-            <p className="muted chart-hint">пропускная — левая ось · p99 — правая ось, логарифмическая</p>
-          </section>
-          <section className="panel">
-            <h2>Почему отказ</h2>
-            <Reasons analysis={analysis} />
-          </section>
+        <div className="grid report">
+          <div className="column">
+            <section className="panel">
+              <div className="panel-head">
+                <h2>Кривая производительности</h2>
+                <span className="hint">сверху пропускная · снизу p99</span>
+              </div>
+              <PerformanceChart
+                steps={steps}
+                limitRps={analysis?.status === 'found' ? analysis.limit_rps : null}
+              />
+            </section>
+            <section className="panel">
+              <div className="panel-head">
+                <h2>Ступени</h2>
+                <span className="hint">{steps.length} из {run.scenario.steps.length}</span>
+              </div>
+              <StepsTable steps={steps} analysis={analysis} />
+            </section>
+          </div>
+          <div className="column">
+            <RunFacts run={run} />
+            <section className="panel">
+              <h2>Почему отказ</h2>
+              <Reasons analysis={analysis} />
+            </section>
+            <section className="panel">
+              <h2>Диагноз</h2>
+              <DiagnosisNote analysis={analysis} />
+            </section>
+          </div>
         </div>
-      )}
-
-      {steps.length > 0 && (
-        <section className="panel">
-          <h2>Ступени</h2>
-          <StepsTable steps={steps} analysis={analysis} />
-        </section>
       )}
     </div>
   )
 }
 
+// Главный вывод отчёта: предел или почему его нет, и что было на ступени отказа
+function LimitCard({ run, failed }: { run: Run; failed?: Run['steps'][number] }) {
+  const head = headline(run)
+  return (
+    <section className={`limit kind-${head.kind}`} aria-label="Предел">
+      <div className="limit-value">
+        <span className="label">Предел</span>
+        {head.value != null
+          ? (
+            <p className="big">
+              {head.kind === 'lower-bound' && '≥ '}
+              {formatNumber(head.value)}
+              <span className="unit">запр/с</span>
+            </p>
+          )
+          : <p className="caption">{head.kind === 'pending' ? 'Ищем предел…' : 'Не определён'}</p>}
+      </div>
+      <div>
+        <p className="limit-text">{head.caption}</p>
+        {failed && (
+          <dl className="facts">
+            <dt>Отказ на нагрузке</dt>
+            <dd>{formatNumber(failed.target_rps)} запр/с</dd>
+            <dt>p99 на отказе</dt>
+            <dd>{formatNumber(failed.latency_ms.p99)} мс</dd>
+            <dt>Ошибки на отказе</dt>
+            <dd>{formatNumber(failed.errors.rate_percent, 1)} %</dd>
+          </dl>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function RunFacts({ run }: { run: Run }) {
+  const peak = Math.max(...run.scenario.steps.map((s) => s.target_rps))
+  const requests = run.steps.reduce((sum, s) => sum + s.request_count, 0)
+  return (
+    <section className="panel">
+      <h2>Прогон</h2>
+      <dl className="facts">
+        <dt>Ступеней</dt>
+        <dd>{run.steps.length} из {run.scenario.steps.length}</dd>
+        <dt>Пиковая нагрузка</dt>
+        <dd>{formatNumber(peak)} запр/с</dd>
+        <dt>Запросов отправлено</dt>
+        <dd>{formatNumber(requests)}</dd>
+        <dt>Начат</dt>
+        <dd>{formatTime(run.started_at)}</dd>
+        <dt>Завершён</dt>
+        <dd>{formatTime(run.finished_at)}</dd>
+      </dl>
+    </section>
+  )
+}
+
+function formatTime(iso: string | null): string {
+  if (!iso)
+    return '—'
+  return new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
 function Reasons({ analysis }: { analysis: Run['analysis'] }) {
   if (!analysis)
-    return <p className="muted">Анализ не выполнялся.</p>
+    return <p className="placeholder">Анализ не выполнялся.</p>
   if (analysis.reasons.length > 0)
     return (
       <ul className="reasons">
         {analysis.reasons.map((r) => <li key={r}>{r}</li>)}
       </ul>
     )
-  return <p className="muted">{analysis.status === 'not_found' ? 'Ни одна ступень не отказала.' : analysis.message}</p>
+  return <p className="placeholder">{analysis.status === 'not_found' ? 'Ни одна ступень не отказала.' : analysis.message}</p>
+}
+
+// Пока только текст анализатора; причины и уверенность по макету — отдельной задачей
+function DiagnosisNote({ analysis }: { analysis: Run['analysis'] }) {
+  const diagnosis = analysis?.diagnosis
+  if (!diagnosis)
+    return <p className="placeholder">Анализатор не поставил диагноз для этого прогона.</p>
+  return (
+    <>
+      <p>{diagnosis.explanation}</p>
+      {diagnosis.evidence.length > 0 && (
+        <ul className="reasons">
+          {diagnosis.evidence.map((e) => <li key={e}>{e}</li>)}
+        </ul>
+      )}
+    </>
+  )
 }
 
 function SkippedNote({ step }: { step: number }) {
