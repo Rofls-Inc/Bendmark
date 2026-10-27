@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts'
 import type { StepResult } from '../api/types'
+import { overflowDot, shownFormatter, withShown } from './axisOverflow'
 import { axisProps, gridProps, legendProps, thresholdLabel, tooltipProps } from './chartStyle'
 import { P99_THRESHOLD_MS, latencyAxis, rpsAxis, toChartPoints, toLatencyPoints } from '../run/view'
 
@@ -37,14 +38,15 @@ function xAxis(plannedTargets: number[]) {
 export function LatencyChart({ steps, plannedTargets }: Props) {
   const points = toLatencyPoints(steps)
   const axis = latencyAxis(points)
+  const shown = withShown(points, ['p50', 'p90', 'p99'], axis)
 
   return (
     <ResponsiveContainer width="100%" height={260}>
-      <LineChart data={points} margin={{ top: 16, right: 16, bottom: 8, left: 0 }}>
+      <LineChart data={shown} margin={{ top: 16, right: 16, bottom: 8, left: 0 }}>
         <CartesianGrid {...gridProps} />
         {xAxis(plannedTargets)}
         <YAxis domain={axis.domain} ticks={axis.ticks} {...axisProps} width={48} />
-        <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
+        <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} formatter={shownFormatter(axis)} />
         <Legend {...legendProps} />
         <ReferenceLine
           y={P99_THRESHOLD_MS}
@@ -52,9 +54,12 @@ export function LatencyChart({ steps, plannedTargets }: Props) {
           strokeDasharray="4 4"
           label={{ value: `порог ${P99_THRESHOLD_MS} мс`, ...thresholdLabel }}
         />
-        <Line dataKey="p50" name="p50, мс" stroke="var(--series-p50)" strokeWidth={1.5} isAnimationActive={false} />
-        <Line dataKey="p90" name="p90, мс" stroke="var(--series-p90)" strokeWidth={1.5} isAnimationActive={false} />
-        <Line dataKey="p99" name="p99, мс" stroke="var(--series-p99)" strokeWidth={2} isAnimationActive={false} />
+        <Line dataKey="p50Shown" name="p50, мс" stroke="var(--series-p50)" strokeWidth={1.5}
+          dot={overflowDot('p50', axis, 'var(--series-p50)')} isAnimationActive={false} />
+        <Line dataKey="p90Shown" name="p90, мс" stroke="var(--series-p90)" strokeWidth={1.5}
+          dot={overflowDot('p90', axis, 'var(--series-p90)')} isAnimationActive={false} />
+        <Line dataKey="p99Shown" name="p99, мс" stroke="var(--series-p99)" strokeWidth={2}
+          dot={overflowDot('p99', axis, 'var(--series-p99)')} isAnimationActive={false} />
       </LineChart>
     </ResponsiveContainer>
   )

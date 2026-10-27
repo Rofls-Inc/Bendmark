@@ -102,9 +102,9 @@ describe('headline', () => {
       .toMatchObject({ kind: 'lower-bound', value: 400 })
   })
 
-  it('предел ниже первой ступени', () => {
+  it('предел ниже первой ступени: значение — её нагрузка, карточка покажет «< 100»', () => {
     expect(headline(run(analysis({ failed_step_index: 1, reasons: ['x'] }))))
-      .toMatchObject({ kind: 'below-first', value: null })
+      .toMatchObject({ kind: 'below-first', value: 100 })
   })
 
   it('анализ идёт', () => {
