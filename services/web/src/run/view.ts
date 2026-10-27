@@ -40,8 +40,28 @@ export function latencyAxis(points: LatencyPoint[], threshold = P99_THRESHOLD_MS
   return latencyMax(points.flatMap((p) => [p.p50, p.p90, p.p99]), threshold)
 }
 
+// Потолок оси задержки — четыре порога. Задержка в десятки секунд (генератор не успевает)
+// иначе растянула бы ось так, что порог и нормальные ступени прилипли бы к нулю.
+// Что выше потолка, рисуется у верхнего края (см. clampToAxis), точное значение — в подсказке.
+const LATENCY_CAP_FACTOR = 4
+
 function latencyMax(raw: (number | null)[], threshold: number): Axis {
-  return linearAxis(Math.max(threshold, ...raw.filter((v): v is number => v !== null)))
+  const max = Math.max(threshold, ...raw.filter((v): v is number => v !== null))
+  const cap = threshold * LATENCY_CAP_FACTOR
+  if (max <= cap)
+    return linearAxis(max)
+  const step = niceStep(cap / 4)
+  return { domain: [0, cap], ticks: Array.from({ length: Math.round(cap / step) + 1 }, (_, i) => i * step) }
+}
+
+// Значение в пределах оси: выше верхнего края — на краю. null остаётся null
+export function clampToAxis(value: number | null, axis: Axis): number | null {
+  return value === null ? null : Math.min(value, axis.domain[1])
+}
+
+// Значение вышло за ось и нарисовано у края
+export function isAboveAxis(value: number | null, axis: Axis): boolean {
+  return value !== null && value > axis.domain[1]
 }
 
 function linearAxis(max: number): Axis {
@@ -76,12 +96,14 @@ export function stepVerdict(step: StepResult, analysis: Analysis | null): StepVe
   if (!hasVerdicts(analysis))
     return null
   const failed = analysis.failed_step_index
+  // Сначала — дошла ли ступень до анализатора: ступень после отказа, которую он не видел
+  // (пропуски, остановка), иначе осталась бы без подписи, как будто её проверили
+  if (step.index > analysis.analyzed_steps)
+    return 'not-analyzed'
   if (failed !== null && step.index > failed)
     return 'after'
   if (failed !== null && step.index === failed)
     return 'failed'
-  if (step.index > analysis.analyzed_steps)
-    return 'not-analyzed'
   if (analysis.status === 'found' && failed !== null && step.index === failed - 1)
     return 'limit'
   return 'ok'
@@ -108,8 +130,9 @@ export function headline(run: Run): Headline {
     case 'pending':
       return { value: null, kind: 'pending', caption: analysis.message }
     case 'found':
+      // Отказ на первой ступени: предел известен сверху — он ниже её нагрузки
       return analysis.limit_rps === null
-        ? { value: null, kind: 'below-first', caption: analysis.message }
+        ? { value: failedTarget(run, analysis.failed_step_index), kind: 'below-first', caption: analysis.message }
         : { value: analysis.limit_rps, kind: 'limit', caption: analysis.message }
     case 'not_found':
       return { value: analysis.limit_rps, kind: 'lower-bound', caption: analysis.message }
@@ -117,6 +140,10 @@ export function headline(run: Run): Headline {
     case 'error':
       return { value: null, kind: 'none', caption: analysis.message }
   }
+}
+
+function failedTarget(run: Run, index: number | null): number | null {
+  return run.steps.find((s) => s.index === index)?.target_rps ?? null
 }
 
 // Номер ступени, которая идёт сейчас: следующая после последней пришедшей
