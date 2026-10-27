@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-func startProxy(t *testing.T, upstream string, delay time.Duration) string {
+func startProxy(t *testing.T, upstream string, faults faultConfig) string {
 	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
-	go func() { done <- serve(listener, upstream, delay) }()
+	go func() { done <- serve(listener, upstream, faults) }()
 	t.Cleanup(func() {
 		listener.Close()
 		if err := <-done; err != nil {
@@ -47,7 +47,7 @@ func TestProxyForwardsRequestAndResponse(t *testing.T) {
 		w.Write(body)
 	}))
 	t.Cleanup(upstream.Close)
-	proxyURL := startProxy(t, strings.TrimPrefix(upstream.URL, "http://"), 0)
+	proxyURL := startProxy(t, strings.TrimPrefix(upstream.URL, "http://"), faultConfig{})
 
 	response, err := testClient().Post(proxyURL+"/orders", "text/plain", strings.NewReader("buy"))
 	if err != nil {
@@ -68,7 +68,7 @@ func TestProxyDelaysResponse(t *testing.T) {
 		w.Write([]byte("ok"))
 	}))
 	t.Cleanup(upstream.Close)
-	proxyURL := startProxy(t, strings.TrimPrefix(upstream.URL, "http://"), 80*time.Millisecond)
+	proxyURL := startProxy(t, strings.TrimPrefix(upstream.URL, "http://"), faultConfig{delay: 80 * time.Millisecond})
 
 	started := time.Now()
 	response, err := testClient().Get(proxyURL)
