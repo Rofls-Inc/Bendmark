@@ -508,6 +508,51 @@ main {
   outline: none;
 }
 
+.control textarea {
+  flex: 1;
+  min-width: 0;
+  padding: var(--s-2) var(--s-3);
+  color: var(--text-1);
+  font-family: var(--font-code);
+  font-size: var(--fs-dense);
+  line-height: 18px;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: vertical;
+}
+
+/* Многострочное поле растёт по содержимому, а не держит высоту однострочного */
+.control:has(textarea) {
+  align-items: stretch;
+  height: auto;
+}
+
+/* Заголовки и тело запроса на странице прогона: только чтение */
+.request {
+  margin-top: var(--s-3);
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+}
+
+.request summary {
+  cursor: pointer;
+}
+
+.request pre {
+  max-height: 240px;
+  margin: var(--s-2) 0 0;
+  padding: var(--s-3);
+  overflow: auto;
+  color: var(--text-2);
+  font-family: var(--font-code);
+  white-space: pre-wrap;
+  word-break: break-all;
+  background: var(--bg-sunken);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+}
+
 .control select option {
   background: var(--surface-2);
 }

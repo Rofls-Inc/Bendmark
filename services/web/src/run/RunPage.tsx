@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { resultUrl } from '../api/client'
-import { FINAL_STATUSES, type Run } from '../api/types'
+import { FINAL_STATUSES, type Run, type Target } from '../api/types'
 import { LatencyChart, ThroughputChart } from '../components/LiveCharts'
 import { PerformanceChart } from '../components/PerformanceChart'
 import { State } from '../components/State'
@@ -41,6 +41,26 @@ export function RunPage() {
     : <Live run={run} offline={offline} onStopped={applyRun} />
 }
 
+// Заголовки и тело запроса сценария; у GET без заголовков блока нет
+function RequestDetails({ target }: { target: Target }) {
+  const headers = Object.entries(target.headers ?? {})
+  const body = target.body ?? ''
+  if (headers.length === 0 && body === '')
+    return null
+
+  const parts = [
+    headers.length > 0 && `заголовков: ${headers.length}`,
+    body !== '' && `тело: ${formatNumber(new TextEncoder().encode(body).length)} Б`,
+  ].filter(Boolean)
+  const text = [headers.map(([name, value]) => `${name}: ${value}`).join('\n'), body].filter(Boolean).join('\n\n')
+  return (
+    <details className="request">
+      <summary>Запрос · {parts.join(' · ')}</summary>
+      <pre>{text}</pre>
+    </details>
+  )
+}
+
 function Header({ run, subtitle, actions }: { run: Run; subtitle: string; actions?: ReactNode }) {
   const planned = run.scenario.steps.reduce((sum, s) => sum + s.duration_seconds, 0)
   return (
@@ -53,6 +73,7 @@ function Header({ run, subtitle, actions }: { run: Run; subtitle: string; action
           <span>{run.scenario.target.method} <code>{run.scenario.target.url}</code></span>
           <span>{run.scenario.steps.length} ступеней · {formatDuration(planned)}</span>
         </div>
+        <RequestDetails target={run.scenario.target} />
       </div>
       {actions && <div className="actions">{actions}</div>}
     </header>

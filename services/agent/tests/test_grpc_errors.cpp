@@ -26,30 +26,74 @@ bendmark::v1::RunRequest make_run(const std::string& run_id,
     return req;
 }
 
-void test_invalid_method() {
+grpc::StatusCode run_status(bendmark::v1::AgentService::Stub& stub,
+                            const bendmark::v1::RunRequest& req) {
+    grpc::ClientContext ctx;
+    auto reader = stub.Run(&ctx, req);
+    bendmark::v1::RunResponse resp;
+    while (reader->Read(&resp)) {}
+    return reader->Finish().error_code();
+}
+
+void test_invalid_target_rejected() {
     AgentOptions opt;
     opt.timeout_ms = 5000;
     opt.max_concurrency = 1000;
 
-    auto core = std::make_shared<AgentCore>(
-        []() { return std::make_shared<FakeSender>(std::chrono::microseconds(100)); },
-        opt);
+    auto fake = std::make_shared<FakeSender>(std::chrono::microseconds(100));
+    auto core = std::make_shared<AgentCore>([fake]() { return fake; }, opt);
 
     auto ts = start_test_server(core);
     auto channel = grpc::CreateChannel(ts.addr, grpc::InsecureChannelCredentials());
     auto stub = bendmark::v1::AgentService::NewStub(channel);
+    const std::string id = "55555555-5555-5555-5555-555555555555";
 
-    auto req = make_run("55555555-5555-5555-5555-555555555555", "POST");
-    grpc::ClientContext ctx;
-    auto reader = stub->Run(&ctx, req);
+    auto expect_invalid = [&](const bendmark::v1::RunRequest& req, const std::string& what) {
+        test::expect_eq_long(static_cast<long long>(run_status(*stub, req)),
+                             static_cast<long long>(grpc::StatusCode::INVALID_ARGUMENT),
+                             what + " rejected with INVALID_ARGUMENT");
+    };
 
-    bendmark::v1::RunResponse resp;
-    while (reader->Read(&resp)) {}
-    auto status = reader->Finish();
+    for (const std::string method : {"", "get", "HEAD", "FETCH"}) {
+        expect_invalid(make_run(id, method), "method '" + method + "'");
+    }
 
-    test::expect_eq_long(static_cast<long long>(status.error_code()),
-                         static_cast<long long>(grpc::StatusCode::INVALID_ARGUMENT),
-                         "POST rejected with INVALID_ARGUMENT");
+    auto get_with_body = make_run(id, "GET");
+    get_with_body.mutable_scenario()->mutable_target()->set_body("x");
+    expect_invalid(get_with_body, "GET with body");
+
+    auto delete_with_body = make_run(id, "DELETE");
+    delete_with_body.mutable_scenario()->mutable_target()->set_body("x");
+    expect_invalid(delete_with_body, "DELETE with body");
+
+    auto injected = make_run(id, "POST");
+    (*injected.mutable_scenario()->mutable_target()->mutable_headers())["X-A"] = "1\r\nX-Injected: 2";
+    expect_invalid(injected, "CRLF in header value");
+
+    auto bad_name = make_run(id, "POST");
+    (*bad_name.mutable_scenario()->mutable_target()->mutable_headers())["Bad Name"] = "1";
+    expect_invalid(bad_name, "space in header name");
+
+    auto length = make_run(id, "POST");
+    (*length.mutable_scenario()->mutable_target()->mutable_headers())["Content-Length"] = "1";
+    expect_invalid(length, "Content-Length header");
+
+    auto duplicate = make_run(id, "POST");
+    auto& headers = *duplicate.mutable_scenario()->mutable_target()->mutable_headers();
+    headers["Accept"] = "a";
+    headers["accept"] = "b";
+    expect_invalid(duplicate, "headers differing only in case");
+
+    auto big = make_run(id, "POST");
+    big.mutable_scenario()->mutable_target()->set_body(std::string(kMaxBodyBytes + 1, 'x'));
+    expect_invalid(big, "body over 64 KiB");
+
+    test::expect_eq_long(fake->calls(), 0, "no load for rejected runs");
+
+    for (const std::string method : {"POST", "PUT", "PATCH", "DELETE"}) {
+        test::expect(run_status(*stub, make_run(id, method)) == grpc::StatusCode::OK,
+                     method + " accepted");
+    }
 }
 
 void test_second_concurrent_run_busy() {
@@ -117,7 +161,7 @@ void test_stop_bad_uuid() {
 } // namespace
 
 int main() {
-    test_invalid_method();
+    test_invalid_target_rejected();
     test_second_concurrent_run_busy();
     test_stop_bad_uuid();
     return test::finish("test_grpc_errors");

@@ -2,7 +2,11 @@
 
 export interface Target {
   url: string
+  // GET, POST, PUT, PATCH или DELETE
   method: string
+  // Заголовки и тело каждого запроса; у старых прогонов и GET-сценариев их нет (null)
+  headers?: Record<string, string> | null
+  body?: string | null
 }
 
 export interface Step {

@@ -1,7 +1,9 @@
 #include "sender.hpp"
 
 #include <curl/curl.h>
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -54,9 +56,44 @@ private:
 
 constexpr long kMaxConnections = 1000;   // совпадает с --max-concurrency по умолчанию
 
+bool has_header(const HttpRequest& request, const std::string& lower_name) {
+    return std::any_of(request.headers.begin(), request.headers.end(), [&](const auto& h) {
+        const auto& name = h.first;
+        return name.size() == lower_name.size()
+            && std::equal(name.begin(), name.end(), lower_name.begin(), [](char a, char b) {
+                   return std::tolower(static_cast<unsigned char>(a)) == b;
+               });
+    });
+}
+
+// Заголовки запроса в формате libcurl. Пустой список - nullptr
+curl_slist* build_headers(const HttpRequest& request, bool sends_body) {
+    curl_slist* list = nullptr;
+    auto append = [&](const std::string& line) {
+        curl_slist* next = curl_slist_append(list, line.c_str());
+        if (!next) {
+            curl_slist_free_all(list);
+            throw std::runtime_error("curl_slist_append failed");
+        }
+        list = next;
+    };
+
+    for (const auto& [name, value] : request.headers) {
+        // "Name:" libcurl понимает как «убрать заголовок», пустое значение пишется через ';'
+        append(value.empty() ? name + ";" : name + ": " + value);
+    }
+    if (sends_body) {
+        // Иначе libcurl сам добавит application/x-www-form-urlencoded и
+        // Expect: 100-continue для больших тел: запрос дошёл бы не таким, как в сценарии
+        if (!has_header(request, "content-type")) append("Content-Type:");
+        if (!has_header(request, "expect")) append("Expect:");
+    }
+    return list;
+}
+
 class HttpSender : public Sender {
 public:
-    SendOutcome send(const std::string& url,
+    SendOutcome send(const HttpRequest& request,
                      long timeout_ms,
                      std::atomic<bool>& stop) override {
         SendOutcome out;
@@ -67,13 +104,41 @@ public:
             return out;
         }
 
+        const bool is_get = request.method == "GET";
+        // DELETE и GET без тела; POST, PUT и PATCH отправляют тело, даже пустое (Content-Length: 0)
+        const bool sends_body = !is_get && request.method != "DELETE";
+
+        curl_slist* headers = nullptr;
+        try {
+            headers = build_headers(request, sends_body);
+        } catch (const std::exception& e) {
+            curl_easy_cleanup(curl);
+            out.error = e.what();
+            return out;
+        }
+
         curl_easy_setopt(curl, CURLOPT_SHARE, share_.get());
         curl_easy_setopt(curl, CURLOPT_MAXCONNECTS, kMaxConnections);
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_URL, request.url.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, discard_body);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, timeout_ms);
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, timeout_ms);
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        if (sends_body) {
+            // Тело не копируется: request живёт до конца send
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE,
+                             static_cast<curl_off_t>(request.body.size()));
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, request.body.data());
+        }
+        // POSTFIELDS сам делает запрос POST; PUT, PATCH и DELETE задаются строкой метода
+        if (!is_get && request.method != "POST") {
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, request.method.c_str());
+        }
+        if (headers) {
+            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        }
+        // Редиректы проходим только для GET. Для остальных методов замеряем сам запрос:
+        // ответ 3xx считается успехом, как и раньше, а повтор POST по Location исказил бы замер
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, is_get ? 1L : 0L);
         curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, progress_cb);
         curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &stop);
@@ -98,6 +163,7 @@ public:
         }
 
         curl_easy_cleanup(curl);
+        curl_slist_free_all(headers);
         return out;
     }
 

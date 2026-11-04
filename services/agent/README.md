@@ -75,7 +75,9 @@ W = min(ceil(target_rps × timeout_sec) + 1, max_concurrency)
 
 - `run_id` — валидный UUID;
 - сценарий: непустое имя, URL `http://` или `https://`, непустой список ступеней, у каждой `target_rps` и `duration_seconds` — конечные числа больше нуля;
-- метод — только `GET`.
+- запрос: метод `GET`, `POST`, `PUT`, `PATCH` или `DELETE`; у `GET` и `DELETE` нет тела; тело до 64 КиБ; заголовки — HTTP-токены без повторов (без учёта регистра), без `Content-Length` и `Transfer-Encoding`, значения без управляющих символов, не больше 32 штук и 8 КиБ. Правила общие с CLI, функция `validate_request`.
+
+Метод, заголовки и тело отправляются в каждом запросе как есть. libcurl не подставляет свой `Content-Type` для тела и не шлёт `Expect: 100-continue`. Редиректы проходятся только у `GET`; у остальных методов 3xx — успешная попытка. Подробнее — в [proto/README.md](../../proto/README.md#запрос-к-цели).
 
 Если что-то не так — `INVALID_ARGUMENT`, нагрузка не создаётся. Если агент уже занят другим прогоном — `RESOURCE_EXHAUSTED`. Если всё в порядке — на каждую **полную** ступень отправляется один `RunResponse` с её `StepResult`, затем `OK`.
 
@@ -96,8 +98,11 @@ grpcurl -plaintext -d '{
   "run_id": "11111111-1111-1111-1111-111111111111",
   "scenario": {
     "name": "smoke",
-    "target_url": "http://abstock:8080/",
-    "method": "GET",
+    "target": {
+      "url": "http://abstock:8080/_blazor/negotiate?negotiateVersion=1",
+      "method": "POST",
+      "headers": {"Accept": "application/json"}
+    },
     "steps": [
       {"target_rps": 10, "duration_seconds": 2},
       {"target_rps": 20, "duration_seconds": 2}
@@ -122,6 +127,8 @@ grpcurl -plaintext -d '{
 ```bash
 ./load_agent http://abstock:8080/ --steps 100:45,200:45.5,300:30 --json result.json
 ./load_agent http://abstock:8080/ 100 45.5 --json result.json
+./load_agent http://abstock:8080/api/orders --steps 10:5 --method POST \
+    --header 'Content-Type: application/json' --body '{"quantity": 5}'
 ```
 
 Флаги CLI:
@@ -130,6 +137,9 @@ grpcurl -plaintext -d '{
 |---|---|---|
 | `--steps LIST` | — | Ступени: `RATE:DURATION`, через запятую; длительность дробная |
 | `--name NAME` | `cli` | Имя сценария в JSON |
+| `--method METHOD` | `GET` | `GET`, `POST`, `PUT`, `PATCH` или `DELETE` |
+| `--header 'NAME: VALUE'` | — | Заголовок запроса, флаг можно повторять |
+| `--body TEXT` | — | Тело запроса; не для `GET` и `DELETE` |
 | `--timeout MS` | `5000` | Таймаут одного запроса, мс |
 | `--max-concurrency N` | `1000` | Потолок для авторазмера пула |
 | `--concurrency N` | auto | Ручное переопределение числа воркеров (для отладки) |
@@ -185,7 +195,7 @@ grpcurl -plaintext -d '{
 | Код | Значение |
 |---|---|
 | `0` | Сценарий выполнен |
-| `1` | Ошибка использования: аргументы, `--steps`, неизвестный флаг |
+| `1` | Ошибка использования: аргументы, `--steps`, неизвестный флаг, некорректный запрос (метод, заголовки, тело) |
 | `2` | Некорректная конфигурация: `timeout` или `max-concurrency` ≤ 0 |
 | `3` | Ошибка записи `result.json` |
 | `4` | Ошибка исполнения сценария (не создались потоки и т. п.) |
@@ -203,11 +213,13 @@ ctest --output-on-failure
 - **scenario** — индексы ступеней, дробная длительность, продолжение после ступени с пропусками, колбэк `on_step`;
 - **percentiles** — nearest-rank: 1..100, n = 50, n = 1, пустой массив, крайние перцентили;
 - **workers** — формула `W`, упор в `max_concurrency`, override;
-- **grpc_run** — сценарий из двух ступеней даёт два `RunResponse` с `index` 1 и 2; ступень с пропусками отправляется;
+- **grpc_run** — сценарий из двух ступеней даёт два `RunResponse` с `index` 1 и 2; ступень с пропусками отправляется; POST-сценарий через настоящий `HttpSender` доходит до локального HTTP-сервера с методом, заголовками и телом без изменений;
 - **grpc_stop** — `Stop` посреди ступени даёт `CANCELLED` и только полные ступени; повторный `Stop` возвращает `was_running=false`;
-- **grpc_errors** — неверный метод → `INVALID_ARGUMENT`, второй одновременный `Run` → `RESOURCE_EXHAUSTED`, некорректный UUID в `Stop` → `INVALID_ARGUMENT`.
+- **grpc_errors** — неверный метод, тело у `GET`/`DELETE`, CRLF или пробел в заголовке, `Content-Length`, повтор заголовка, тело больше 64 КиБ → `INVALID_ARGUMENT` без нагрузки; `POST`, `PUT`, `PATCH`, `DELETE` принимаются; второй одновременный `Run` → `RESOURCE_EXHAUSTED`, некорректный UUID в `Stop` → `INVALID_ARGUMENT`.
 
-Тесты используют `FakeSender` — отправитель с настраиваемой задержкой, без сети. gRPC-тесты поднимают сервер на `localhost:0` (эфе-мерный порт) и общаются с ним через сгенерированный gRPC-клиент.
+- **http_request** — `validate_request` и настоящий `HttpSender` против локального HTTP-сервера (`tests/http_test_server.hpp`): метод, путь, заголовки (включая пустое значение) и тело приходят байт в байт; без `Content-Type` и `Expect` от libcurl; пустой `POST` с `Content-Length: 0`; тело 64 КиБ целиком; редирект проходится только у `GET`.
+
+Остальные тесты используют `FakeSender` — отправитель с настраиваемой задержкой, без сети. gRPC-тесты поднимают сервер на `localhost:0` (эфе-мерный порт) и общаются с ним через сгенерированный gRPC-клиент.
 
 ## Docker
 
@@ -234,17 +246,19 @@ services/agent/
 ├── Dockerfile.dockerignore
 ├── include/
 │   ├── load_agent.hpp        # run_step, run_scenario, compute_workers
-│   ├── sender.hpp            # интерфейс отправителя
+│   ├── sender.hpp            # HttpRequest, validate_request, интерфейс отправителя
 │   ├── stats.hpp             # StepConfig, StepResult, перцентили
 │   └── agent_service.hpp     # AgentCore: состояние прогона, Run/Stop
 ├── src/
 │   ├── load_agent.cpp        # планировщик, пул воркеров, JSON
-│   ├── sender_http.cpp       # HTTP-отправитель с XFERINFOFUNCTION
+│   ├── request.cpp           # проверка метода, заголовков и тела
+│   ├── sender_http.cpp       # HTTP-отправитель: метод, заголовки, тело, XFERINFOFUNCTION
 │   ├── agent_service.cpp     # AgentCore: гонка Run/Stop, фабрика Sender
 │   └── main.cpp              # CLI или gRPC-сервер по аргументам
 └── tests/
     ├── CMakeLists.txt
     ├── fake_sender.hpp
+    ├── http_test_server.hpp  # локальный HTTP-сервер, запоминает запросы как пришли
     ├── test_util.hpp
     ├── test_scheduler.cpp
     ├── test_scenario.cpp
@@ -252,7 +266,8 @@ services/agent/
     ├── test_workers.cpp
     ├── test_grpc_run.cpp
     ├── test_grpc_stop.cpp
-    └── test_grpc_errors.cpp
+    ├── test_grpc_errors.cpp
+    └── test_http_request.cpp
 ```
 
 `Sender` — интерфейс отправителя. Сейчас единственная реализация — `HttpSender`. Новый отправитель (например, WebSocket) реализует тот же интерфейс; контракт `send()` обязан быть потокобезопасным, `stop` — атомарный флаг, который реализация проверяет, чтобы прервать текущий запрос.

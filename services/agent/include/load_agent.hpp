@@ -11,7 +11,7 @@
 #include <vector>
 
 struct ScenarioConfig {
-    std::string url;
+    HttpRequest request;
     std::vector<StepConfig> steps;
     long timeout_ms = 5000;
     int max_concurrency = 1000;
@@ -29,7 +29,7 @@ using CancelCheck = std::function<bool()>;
 
 int compute_workers(const StepConfig& step, const ScenarioConfig& opt);
 
-std::optional<StepResult> run_step(const std::string& url,
+std::optional<StepResult> run_step(const HttpRequest& request,
                                    const StepConfig& step,
                                    int index,
                                    const ScenarioConfig& opt,

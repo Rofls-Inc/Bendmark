@@ -87,15 +87,16 @@ public sealed class GrpcAgentRunner : IAgentRunner
 
     private static Proto.Scenario ToProto(Scenario scenario)
     {
-        var result = new Proto.Scenario
+        var target = new Proto.Target
         {
-            Name = scenario.Name ?? "",
-            Target = new Proto.Target
-            {
-                Url = scenario.Target?.Url ?? "",
-                Method = scenario.Target?.Method ?? "",
-            },
+            Url = scenario.Target?.Url ?? "",
+            Method = scenario.Target?.Method ?? "",
+            Body = scenario.Target?.Body ?? "",
         };
+        foreach (var (name, value) in scenario.Target?.Headers ?? [])
+            target.Headers[name] = value ?? "";
+
+        var result = new Proto.Scenario { Name = scenario.Name ?? "", Target = target };
         foreach (var step in scenario.Steps ?? [])
             result.Steps.Add(new Proto.Step { TargetRps = step.TargetRps, DurationSeconds = step.DurationSeconds });
         return result;

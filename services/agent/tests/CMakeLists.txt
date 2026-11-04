@@ -28,3 +28,6 @@ add_executable(load_agent_tests_grpc_errors test_grpc_errors.cpp)
 target_link_libraries(load_agent_tests_grpc_errors PRIVATE
     load_agent_core agent_grpc agent_proto gRPC::grpc++)
 add_test(NAME grpc_errors COMMAND load_agent_tests_grpc_errors)
+add_executable(load_agent_tests_http_request test_http_request.cpp)
+target_link_libraries(load_agent_tests_http_request PRIVATE load_agent_core)
+add_test(NAME http_request COMMAND load_agent_tests_http_request)

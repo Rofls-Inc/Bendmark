@@ -11,7 +11,7 @@ public:
     explicit FakeSender(std::chrono::microseconds service_time)
         : service_time_(service_time) {}
 
-    SendOutcome send(const std::string&,
+    SendOutcome send(const HttpRequest&,
                      long,
                      std::atomic<bool>& stop) override {
         // Ждём сервисное время, но не дольше, чем потребуется для проверки

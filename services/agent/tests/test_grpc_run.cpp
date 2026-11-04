@@ -1,13 +1,17 @@
 #include "agent_service.hpp"
 #include "fake_sender.hpp"
 #include "grpc_test_util.hpp"
+#include "http_test_server.hpp"
 #include "test_util.hpp"
 
 #include <grpcpp/grpcpp.h>
 #include "bendmark/v1/agent.grpc.pb.h"
 
+#include <curl/curl.h>
+
 #include <chrono>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -96,10 +100,67 @@ void test_skipped_step_still_sent() {
     }
 }
 
+// Сквозной путь: сценарий из gRPC -> HttpSender -> HTTP-сервер.
+// Каждый запрос ступени приходит с методом, заголовками и телом из сценария
+void test_post_scenario_reaches_server_unchanged() {
+    HttpTestServer server;
+
+    AgentOptions opt;
+    opt.timeout_ms = 2000;
+    opt.max_concurrency = 50;
+    auto core = std::make_shared<AgentCore>([]() { return make_http_sender(); }, opt);
+
+    auto ts = start_test_server(core);
+    auto channel = grpc::CreateChannel(ts.addr, grpc::InsecureChannelCredentials());
+    auto stub = bendmark::v1::AgentService::NewStub(channel);
+
+    const std::string body = "{\"ticker\":\"ABS\",\"qty\":5}";
+    bendmark::v1::RunRequest req;
+    req.set_run_id("33333333-3333-3333-3333-333333333333");
+    auto* sc = req.mutable_scenario();
+    sc->set_name("post");
+    auto* target = sc->mutable_target();
+    target->set_url(server.url("/orders"));
+    target->set_method("POST");
+    (*target->mutable_headers())["Content-Type"] = "application/json";
+    (*target->mutable_headers())["X-Run"] = "bendmark";
+    target->set_body(body);
+    auto* s1 = sc->add_steps();
+    s1->set_target_rps(20.0);
+    s1->set_duration_seconds(0.3);
+
+    grpc::ClientContext ctx;
+    auto reader = stub->Run(&ctx, req);
+    bendmark::v1::RunResponse resp;
+    bool got = reader->Read(&resp);
+    while (reader->Read(&resp)) {}
+    auto status = reader->Finish();
+
+    test::expect(status.ok(), "POST run OK: " + status.error_message());
+    test::expect(got, "step result received");
+    if (got) {
+        test::expect(resp.step_result().request_count() > 0, "requests completed");
+        test::expect_eq_long(static_cast<long long>(resp.step_result().errors().count()), 0, "no errors");
+    }
+
+    auto requests = server.requests();
+    test::expect(!requests.empty(), "server received requests");
+    bool all_same = true;
+    for (const auto& r : requests) {
+        all_same = all_same && r.method == "POST" && r.target == "/orders" && r.body == body
+            && r.values("Content-Type") == std::vector<std::string>{"application/json"}
+            && r.header("X-Run") == std::optional<std::string>("bendmark");
+    }
+    test::expect(all_same, "every request has the scenario's method, headers and body");
+}
+
 } // namespace
 
 int main() {
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+    test_post_scenario_reaches_server_unchanged();
     test_two_steps_two_responses();
     test_skipped_step_still_sent();
+    curl_global_cleanup();
     return test::finish("test_grpc_run");
 }

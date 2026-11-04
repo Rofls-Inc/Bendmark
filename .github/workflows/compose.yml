@@ -9,7 +9,7 @@ on:
       - "services/web/**"
       - "proto/**"
       - "testdata/results/**"
-      - "examples/scenario.yaml"
+      - "examples/**"
       - "docker-compose.yml"
       - ".github/workflows/compose.yml"
   push:
@@ -21,7 +21,7 @@ on:
       - "services/web/**"
       - "proto/**"
       - "testdata/results/**"
-      - "examples/scenario.yaml"
+      - "examples/**"
       - "docker-compose.yml"
       - ".github/workflows/compose.yml"
   workflow_dispatch:
@@ -60,6 +60,23 @@ jobs:
             -H "Content-Type: application/yaml" --data-binary "@examples/scenario.yaml")
           cat response.json; echo
           test "$code" = 201
+
+      - name: Coordinator accepts a POST scenario
+        run: |
+          code=$(curl -s -o response.json -w '%{http_code}' -X POST http://localhost:5080/runs \
+            -H "Content-Type: application/yaml" --data-binary "@examples/scenario-post.yaml")
+          cat response.json; echo
+          test "$code" = 201
+
+      - name: Agent sends POST to abstock
+        timeout-minutes: 2
+        # negotiate SignalR - единственный POST ABStock без antiforgery-токена
+        run: |
+          docker compose run --rm -T agent 'http://abstock:8080/_blazor/negotiate?negotiateVersion=1' \
+            --steps 10:2 --method POST --header 'Accept: application/json' > result-post.json
+          cat result-post.json
+          jq -e '.steps | length == 1 and .[0].request_count > 0
+                 and .[0].errors.count == 0 and .[0].skipped_count == 0' result-post.json
 
       - name: Agent reaches abstock
         timeout-minutes: 2
