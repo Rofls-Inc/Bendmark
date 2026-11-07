@@ -16,12 +16,12 @@ public enum StopOutcome
 
 public readonly record struct StopResult(StopOutcome Outcome, Run? Run);
 
-// Исполняет прогоны на агенте по одному и останавливает их по запросу.
+// Исполняет прогоны по одному на группе агентов и останавливает их по запросу.
 // Конечный статус начатого прогона фиксирует только ExecuteAsync - так переход
 // в конечный статус происходит один раз, а полученные ступени не теряются
 public sealed class RunExecutor(
     RunStore store,
-    IAgentRunner agent,
+    AgentGroup agents,
     IAnalyzer analyzer,
     IOptions<AgentOptions> agentOptions,
     TimeProvider time,
@@ -61,7 +61,7 @@ public sealed class RunExecutor(
                 return;
             }
 
-            var (status, error) = await RunOnAgentAsync(run, active, callCancellation.Token, stoppingToken);
+            var (status, error) = await RunOnAgentsAsync(run, active, callCancellation.Token, stoppingToken);
             plan = AnalysisPlan.For(status, store.Get(runId)!.Steps);
             store.TryFinish(runId, status, error, plan?.Initial());
             logger.LogInformation("Прогон {RunId} завершён со статусом {Status}", runId, status);
@@ -107,62 +107,45 @@ public sealed class RunExecutor(
         logger.LogInformation("Анализ прогона {RunId}: {Status}", runId, analysis.Status);
     }
 
-    // Вызывает у агента Run. Если агент занят (RESOURCE_EXHAUSTED), повторяет вызов после паузы
-    // до Agent:BusyRetryCount раз; на время пауз прогон остаётся running без ступеней
-    private async Task<(RunStatus Status, string? Error)> RunOnAgentAsync(
+    // Вызывает Run у всех агентов группы, каждому - его долю нагрузки (#78). Если хотя бы один
+    // агент занят (RESOURCE_EXHAUSTED) до нагрузки, остальным отменяет вызов и повторяет всю группу
+    // после паузы, до Agent:BusyRetryCount раз; на время пауз прогон остаётся running без ступеней
+    private async Task<(RunStatus Status, string? Error)> RunOnAgentsAsync(
         Run run, ActiveRun active, CancellationToken callToken, CancellationToken stoppingToken)
     {
         try
         {
-            var plannedStepCount = run.Scenario.Steps?.Count ?? 0;
             var attempts = _agentOptions.BusyRetryCount + 1;
             for (var attempt = 1; ; attempt++)
             {
-                var expectedIndex = 1u;
-                try
-                {
-                    await foreach (var step in agent.RunAsync(run.Id, run.Scenario, callToken))
-                    {
-                        if (step.Index != expectedIndex)
-                            throw new AgentProtocolException(
-                                $"Агент прислал ступень {step.Index}, ожидалась {expectedIndex}");
-                        if (expectedIndex > plannedStepCount)
-                            throw new AgentProtocolException(
-                                $"Агент прислал лишнюю ступень {step.Index}, в сценарии {plannedStepCount} ступеней");
-                        store.AddStep(run.Id, step);
-                        expectedIndex++;
-                    }
-
-                    var receivedStepCount = expectedIndex - 1;
-                    if (receivedStepCount != plannedStepCount)
-                        throw new AgentProtocolException(
-                            $"Агент завершил поток: получено {receivedStepCount} из {plannedStepCount} ступеней");
+                var failure = await RunAttemptAsync(run, callToken);
+                if (failure is null)
                     return (RunStatus.Completed, null);
-                }
-                // По контракту «занят» приходит до нагрузки. Если ступени уже были, повтор
-                // задублировал бы их: такой ответ разбирает Classify как обычную ошибку
-                catch (RpcException e) when (e.StatusCode == StatusCode.ResourceExhausted && expectedIndex == 1)
-                {
-                    if (attempt == attempts)
-                    {
-                        // Остановку запросили, пока шёл последний вызов: итог как на промежуточной
-                        // попытке (там PauseAsync вернёт false), иначе он зависел бы от номера попытки
-                        if (store.IsStopRequested(run.Id))
-                        {
-                            logger.LogInformation("Прогон {RunId} остановлен, агент был занят до последней попытки", run.Id);
-                            return (RunStatus.Aborted, null);
-                        }
 
-                        logger.LogWarning("Агент занят: прогон {RunId}, попытка {Attempt} из {Attempts}, повторов больше нет",
-                            run.Id, attempt, attempts);
-                        return Classify(e.StatusCode, e.Status.Detail,
-                            store.IsStopRequested(run.Id), stoppingToken.IsCancellationRequested);
+                // По контракту «занят» приходит до нагрузки. Если ступени уже были, повтор
+                // задублировал бы их: такой ответ разбирается как обычная ошибка
+                if (failure is not { Error: RpcException { StatusCode: StatusCode.ResourceExhausted }, BeforeLoad: true })
+                    return Outcome(run.Id, failure, callToken, stoppingToken);
+
+                var agentName = agents.Describe(failure.Agent);
+                if (attempt == attempts)
+                {
+                    // Остановку запросили, пока шёл последний вызов: итог как на промежуточной
+                    // попытке (там PauseAsync вернёт false), иначе он зависел бы от номера попытки
+                    if (store.IsStopRequested(run.Id))
+                    {
+                        logger.LogInformation("Прогон {RunId} остановлен, агент был занят до последней попытки", run.Id);
+                        return (RunStatus.Aborted, null);
                     }
 
-                    logger.LogInformation(
-                        "Агент занят: прогон {RunId}, попытка {Attempt} из {Attempts}, повтор через {Delay} с",
-                        run.Id, attempt, attempts, _agentOptions.BusyRetryDelaySeconds);
+                    logger.LogWarning("Агент занят: прогон {RunId}, {Agent}, попытка {Attempt} из {Attempts}, повторов больше нет",
+                        run.Id, agentName, attempt, attempts);
+                    return Outcome(run.Id, failure, callToken, stoppingToken);
                 }
+
+                logger.LogInformation(
+                    "Агент занят: прогон {RunId}, {Agent}, попытка {Attempt} из {Attempts}, повтор через {Delay} с",
+                    run.Id, agentName, attempt, attempts, _agentOptions.BusyRetryDelaySeconds);
 
                 // Остановка во время паузы отменяет callToken: Task.Delay бросит OperationCanceledException
                 if (!await active.PauseAsync(_agentOptions.BusyRetryDelay, time, callToken))
@@ -172,35 +155,135 @@ public sealed class RunExecutor(
                 }
             }
         }
-        catch (RpcException e)
-        {
-            var outcome = Classify(e.StatusCode, e.Status.Detail,
-                store.IsStopRequested(run.Id), stoppingToken.IsCancellationRequested);
-            if (outcome.Status == RunStatus.Failed)
-                logger.LogWarning(e, "Агент завершил прогон {RunId} с ошибкой {Code}", run.Id, e.StatusCode);
-            return outcome;
-        }
         catch (OperationCanceledException) when (callToken.IsCancellationRequested)
         {
-            return (RunStatus.Aborted, stoppingToken.IsCancellationRequested ? "Координатор остановлен" : null);
-        }
-        catch (Exception e)
-        {
-            logger.LogError(e, "Ошибка обмена с агентом в прогоне {RunId}", run.Id);
-            return (RunStatus.Failed, $"Ошибка обмена с агентом: {e.Message}");
+            return (RunStatus.Aborted, stoppingToken.IsCancellationRequested ? CoordinatorStopped : null);
         }
     }
+
+    // Первый агент, завершившийся не OK, и его ошибка. BeforeLoad - ни этот агент,
+    // ни группа ещё не прислали ни одной ступени: «занят» можно повторить
+    private sealed record AgentFailure(AgentEndpoint Agent, Exception Error, bool BeforeLoad);
+
+    // Одна попытка: Run у всех агентов параллельно. Ступень k попадает в прогон, когда её
+    // прислали все агенты. Первая ошибка любого агента отменяет вызовы остальных: их CANCELLED
+    // после этой отмены итог не меняет. null - все агенты прислали все ступени и завершили OK
+    private async Task<AgentFailure?> RunAttemptAsync(Run run, CancellationToken callToken)
+    {
+        var plannedSteps = run.Scenario.Steps ?? [];
+        var agentScenario = ScenarioSplit.ForAgent(run.Scenario, agents.Count);
+        using var groupCancellation = CancellationTokenSource.CreateLinkedTokenSource(callToken);
+
+        var gate = new Lock();
+        var received = agents.Agents.Select(_ => new List<StepResultDto>()).ToArray();
+        var storedCount = 0;
+        AgentFailure? failure = null;
+
+        async Task PumpAsync(int position)
+        {
+            var agent = agents.Agents[position];
+            var expectedIndex = 1u;
+            try
+            {
+                await foreach (var step in agent.Runner.RunAsync(run.Id, agentScenario, groupCancellation.Token))
+                {
+                    if (step.Index != expectedIndex)
+                        throw new AgentProtocolException(
+                            $"Агент прислал ступень {step.Index}, ожидалась {expectedIndex}");
+                    if (expectedIndex > plannedSteps.Count)
+                        throw new AgentProtocolException(
+                            $"Агент прислал лишнюю ступень {step.Index}, в сценарии {plannedSteps.Count} ступеней");
+                    expectedIndex++;
+
+                    lock (gate)
+                    {
+                        received[position].Add(step);
+                        while (storedCount < plannedSteps.Count && received.All(steps => steps.Count > storedCount))
+                        {
+                            var parts = received.Select(steps => steps[storedCount]).ToList();
+                            LogParts(run.Id, parts);
+                            store.AddStep(run.Id, StepMerger.Merge(
+                                (uint)(storedCount + 1), plannedSteps[storedCount], parts));
+                            storedCount++;
+                        }
+                    }
+                }
+
+                var receivedStepCount = expectedIndex - 1;
+                if (receivedStepCount != plannedSteps.Count)
+                    throw new AgentProtocolException(
+                        $"Агент завершил поток: получено {receivedStepCount} из {plannedSteps.Count} ступеней");
+            }
+            catch (Exception e)
+            {
+                bool first;
+                lock (gate)
+                {
+                    first = failure is null;
+                    if (first)
+                        failure = new AgentFailure(agent, e, BeforeLoad: expectedIndex == 1 && storedCount == 0);
+                }
+
+                // Вне замка: отмена может сразу выполнить продолжения других агентов
+                if (first && agents.Count > 1)
+                    groupCancellation.Cancel();
+            }
+        }
+
+        await Task.WhenAll(Enumerable.Range(0, agents.Count).Select(PumpAsync));
+        return failure;
+    }
+
+    // Ступени отдельных агентов в базе не хранятся; лог показывает, какой агент выбивается
+    private void LogParts(Guid runId, IReadOnlyList<StepResultDto> parts)
+    {
+        if (parts.Count == 1)
+            return;
+        for (var i = 0; i < parts.Count; i++)
+        {
+            var part = parts[i];
+            logger.LogInformation(
+                "Прогон {RunId}, ступень {Index}, {Agent}: запросов {Requests}, ошибок {Errors}, пропусков {Skipped}, p99 {P99} мс",
+                runId, part.Index, agents.Describe(agents.Agents[i]), part.RequestCount, part.Errors.Count,
+                part.SkippedCount, part.LatencyMs.P99);
+        }
+    }
+
+    // Статус прогона по ошибке агента; текст ошибки - с указанием агента, если их несколько
+    private (RunStatus Status, string? Error) Outcome(
+        Guid runId, AgentFailure failure, CancellationToken callToken, CancellationToken stoppingToken)
+    {
+        switch (failure.Error)
+        {
+            case RpcException e:
+                var (status, error) = Classify(e.StatusCode, e.Status.Detail,
+                    store.IsStopRequested(runId), stoppingToken.IsCancellationRequested);
+                if (status == RunStatus.Failed)
+                    logger.LogWarning(e, "{Agent} завершил прогон {RunId} с ошибкой {Code}",
+                        agents.Describe(failure.Agent), runId, e.StatusCode);
+                // Остановка координатора относится ко всему прогону, а не к агенту
+                return (status, error is null or CoordinatorStopped ? error : agents.WithAgent(failure.Agent, error));
+            case OperationCanceledException when callToken.IsCancellationRequested:
+                return (RunStatus.Aborted, stoppingToken.IsCancellationRequested ? CoordinatorStopped : null);
+            default:
+                logger.LogError(failure.Error, "Ошибка обмена с агентом в прогоне {RunId}: {Agent}",
+                    runId, agents.Describe(failure.Agent));
+                return (RunStatus.Failed, agents.WithAgent(failure.Agent, $"Ошибка обмена с агентом: {failure.Error.Message}"));
+        }
+    }
+
+    private const string CoordinatorStopped = "Координатор остановлен";
 
     // Таблица статусов из proto/README.md
     internal static (RunStatus Status, string? Error) Classify(
         StatusCode code, string detail, bool stopRequested, bool coordinatorStopping) => code switch
     {
         StatusCode.Cancelled when stopRequested => (RunStatus.Aborted, null),
-        StatusCode.Cancelled when coordinatorStopping => (RunStatus.Aborted, "Координатор остановлен"),
+        StatusCode.Cancelled when coordinatorStopping => (RunStatus.Aborted, CoordinatorStopped),
         StatusCode.Cancelled => (RunStatus.Aborted, "Прогон отменён на стороне агента"),
         StatusCode.DeadlineExceeded => (RunStatus.Aborted, "Истёк срок вызова агента"),
         // Сюда RESOURCE_EXHAUSTED доходит только после всех повторов (Agent:BusyRetryCount),
-        // см. RunOnAgentAsync, или если агент прислал его посреди потока
+        // см. RunOnAgentsAsync, или если агент прислал его посреди потока
         StatusCode.ResourceExhausted => (RunStatus.Failed, "Агент занят"),
         StatusCode.InvalidArgument => (RunStatus.Failed, $"Агент отклонил сценарий: {detail}"),
         StatusCode.Unavailable => (RunStatus.Failed, $"Агент недоступен: {detail}"),
@@ -231,15 +314,9 @@ public sealed class RunExecutor(
         }
         else if (active is not null)
         {
-            var wasRunning = false;
-            try
-            {
-                wasRunning = await agent.StopAsync(runId, cancellationToken);
-            }
-            catch (Exception e) when (e is not OperationCanceledException)
-            {
-                logger.LogWarning(e, "Не удалось вызвать Stop у агента для прогона {RunId}", runId);
-            }
+            // Stop у всех агентов сразу: время ответа то же, что с одним агентом
+            var stops = await Task.WhenAll(agents.Agents.Select(a => StopOnAgentAsync(a, runId, cancellationToken)));
+            var wasRunning = stops.Any(stopped => stopped);
 
             if (!await active.WaitAsync(FinishGrace, cancellationToken))
             {
@@ -252,6 +329,22 @@ public sealed class RunExecutor(
 
         var run = store.Get(runId)!;
         return new StopResult(run.Status == RunStatus.Running ? StopOutcome.Pending : StopOutcome.Finished, run);
+    }
+
+    // true, если агент нашёл и остановил прогон. Ошибка вызова Stop не мешает остановке:
+    // ExecuteAsync всё равно дождётся потока Run или отменит его
+    private async Task<bool> StopOnAgentAsync(AgentEndpoint agent, Guid runId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await agent.Runner.StopAsync(runId, cancellationToken);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            logger.LogWarning(e, "Не удалось вызвать Stop у агента для прогона {RunId}: {Agent}",
+                runId, agents.Describe(agent));
+            return false;
+        }
     }
 
     private ActiveRun? GetActive(Guid runId)

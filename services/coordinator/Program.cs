@@ -15,8 +15,11 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 
 builder.Services.AddOptions<AgentOptions>()
     .Bind(builder.Configuration.GetSection(AgentOptions.SectionName))
-    .Validate(o => Uri.TryCreate(o.Address, UriKind.Absolute, out _),
+    .Validate(o => o.Addresses.Count > 0 || Uri.TryCreate(o.Address, UriKind.Absolute, out _),
         "Agent:Address должен быть абсолютным URL, например http://agent:50051")
+    .Validate(o => o.Addresses.All(address => Uri.TryCreate(address, UriKind.Absolute, out _)),
+        "Agent:Addresses - список абсолютных URL, например http://agent-2:50051")
+    .Validate(o => !o.HasDuplicateAddresses(), "Agent:Addresses: адреса агентов не должны повторяться")
     .Validate(o => double.IsFinite(o.RequestTimeoutSeconds) && o.RequestTimeoutSeconds > 0,
         "Agent:RequestTimeoutSeconds должен быть конечным числом больше нуля")
     .Validate(o => o.BusyRetryCount >= 0,
@@ -47,11 +50,8 @@ builder.Services.AddSingleton<RunQueue>();
 builder.Services.AddSingleton<RunExecutor>();
 builder.Services.AddHostedService<RunWorker>();
 
-builder.Services.AddKeyedSingleton<GrpcChannel>(AgentOptions.SectionName, (services, _) =>
-    GrpcChannel.ForAddress(services.GetRequiredService<IOptions<AgentOptions>>().Value.Address));
-builder.Services.AddSingleton<IAgentRunner>(services => new GrpcAgentRunner(
-    services.GetRequiredKeyedService<GrpcChannel>(AgentOptions.SectionName),
-    services.GetRequiredService<IOptions<AgentOptions>>()));
+// Агенты из Agent:Addresses или один Agent:Address (#78)
+builder.Services.AddSingleton(services => AgentGroup.Connect(services.GetRequiredService<IOptions<AgentOptions>>()));
 
 builder.Services.AddKeyedSingleton<GrpcChannel>(AnalyzerOptions.SectionName, (services, _) =>
     GrpcChannel.ForAddress(services.GetRequiredService<IOptions<AnalyzerOptions>>().Value.Address));
@@ -64,7 +64,7 @@ var app = builder.Build();
 // Проверка живости для healthcheck в docker-compose.yml
 app.MapHealthChecks("/health");
 
-app.MapPost("/runs", async (HttpRequest request, RunStore store, RunQueue queue) =>
+app.MapPost("/runs", async (HttpRequest request, RunStore store, RunQueue queue, AgentGroup agents) =>
 {
     var (scenario, error) = await ScenarioReader.ReadAsync(request);
     if (error is not null)
@@ -74,7 +74,7 @@ app.MapPost("/runs", async (HttpRequest request, RunStore store, RunQueue queue)
     if (errors.Count > 0)
         return Results.ValidationProblem(errors);
 
-    var run = store.Create(scenario!);
+    var run = store.Create(scenario!, agents.Count);
     queue.Enqueue(run.Id);
     return Results.Created($"/runs/{run.Id}", new { run.Id, run.Status });
 });

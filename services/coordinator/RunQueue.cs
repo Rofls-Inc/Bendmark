@@ -2,7 +2,7 @@ using System.Threading.Channels;
 
 namespace Bendmark.Coordinator;
 
-// Очередь прогонов на запуск. Читает её один RunWorker: в v1 один агент и один прогон за раз
+// Очередь прогонов на запуск. Читает её один RunWorker: один прогон за раз на всей группе агентов
 public sealed class RunQueue
 {
     private readonly Channel<Guid> _channel = Channel.CreateUnbounded<Guid>(

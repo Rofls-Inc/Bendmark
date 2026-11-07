@@ -61,6 +61,14 @@ jobs:
           cat response.json; echo
           test "$code" = 201
 
+      - name: Run uses three agents
+        # Координатор делит нагрузку между agent, agent-2 и agent-3 (#78)
+        run: |
+          id=$(jq -r .id response.json)
+          curl --fail --silent --show-error "http://localhost:5080/runs/$id" > run.json
+          jq '{status, agent_count}' run.json
+          jq -e '.agent_count == 3' run.json
+
       - name: Agent reaches abstock
         timeout-minutes: 2
         # Агент возвращает 0 даже при ошибках запросов, поэтому проверяем сам result.json
