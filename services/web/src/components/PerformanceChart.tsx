@@ -33,67 +33,73 @@ export function PerformanceChart({ steps, limitRps }: Props) {
 
   return (
     <div>
-      <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={points} margin={margin} syncId={SYNC_ID}>
-          <CartesianGrid {...gridProps} />
-          {xAxis(points)}
-          <YAxis
-            domain={rps.domain}
-            ticks={rps.ticks}
-            {...axisProps}
-            width={56}
-            label={axisLabel('запр/с', 'var(--series-throughput)')}
-          />
-          <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
-          <Legend {...legendProps} />
-          {limitLine(limitRps, true)}
-          <Line
-            dataKey="target"
-            name="целевая нагрузка"
-            stroke="var(--series-target)"
-            strokeDasharray="3 3"
-            dot={false}
-            isAnimationActive={false}
-          />
-          <Line
-            dataKey="throughput"
-            name="пропускная, запр/с"
-            stroke="var(--series-throughput)"
-            strokeWidth={2}
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-      <ResponsiveContainer width="100%" height={200}>
-        <LineChart data={points} margin={margin} syncId={SYNC_ID}>
-          <CartesianGrid {...gridProps} />
-          {xAxis(points)}
-          <YAxis
-            domain={p99.domain}
-            ticks={p99.ticks}
-            {...axisProps}
-            width={56}
-            label={axisLabel('p99, мс', 'var(--series-p99)')}
-          />
-          <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
-          <Legend {...legendProps} />
-          <ReferenceLine
-            y={P99_THRESHOLD_MS}
-            stroke="var(--bad)"
-            strokeDasharray="4 4"
-            label={{ value: `порог ${P99_THRESHOLD_MS} мс`, ...thresholdLabel }}
-          />
-          {limitLine(limitRps)}
-          <Line
-            dataKey="p99"
-            name="p99, мс"
-            stroke="var(--series-p99)"
-            strokeWidth={2}
-            connectNulls={false}
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+      <section className="performance-plot">
+        <h3>Пропускная способность</h3>
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={points} margin={margin} syncId={SYNC_ID}>
+            <CartesianGrid {...gridProps} />
+            {xAxis(points)}
+            <YAxis
+              domain={rps.domain}
+              ticks={rps.ticks}
+              {...axisProps}
+              width={56}
+              label={axisLabel('запр/с', 'var(--series-throughput)')}
+            />
+            <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
+            <Legend {...legendProps} />
+            {limitLine(limitRps, true)}
+            <Line
+              dataKey="target"
+              name="целевая нагрузка"
+              stroke="var(--series-target)"
+              strokeDasharray="3 3"
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              dataKey="throughput"
+              name="пропускная, запр/с"
+              stroke="var(--series-throughput)"
+              strokeWidth={2}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </section>
+      <section className="performance-plot">
+        <h3>Задержка p99</h3>
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={points} margin={margin} syncId={SYNC_ID}>
+            <CartesianGrid {...gridProps} />
+            {xAxis(points)}
+            <YAxis
+              domain={p99.domain}
+              ticks={p99.ticks}
+              {...axisProps}
+              width={56}
+              label={axisLabel('p99, мс', 'var(--series-p99)')}
+            />
+            <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
+            <Legend {...legendProps} />
+            <ReferenceLine
+              y={P99_THRESHOLD_MS}
+              stroke="var(--bad)"
+              strokeDasharray="4 4"
+              label={{ value: `порог ${P99_THRESHOLD_MS} мс`, ...thresholdLabel }}
+            />
+            {limitLine(limitRps)}
+            <Line
+              dataKey="p99"
+              name="p99, мс"
+              stroke="var(--series-p99)"
+              strokeWidth={2}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </section>
     </div>
   )
 }

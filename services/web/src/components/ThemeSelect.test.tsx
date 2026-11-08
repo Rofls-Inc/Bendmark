@@ -15,7 +15,8 @@ function mockSystemTheme(dark: boolean) {
 }
 
 function expectTheme(mode: string, active: string) {
-  expect((screen.getByRole('combobox', { name: 'Тема' }) as HTMLSelectElement).value).toBe(mode)
+  const radio = screen.getByRole('radio', { checked: true }) as HTMLInputElement
+  expect(radio.value).toBe(mode)
   expect(document.documentElement.dataset.theme).toBe(active)
 }
 
@@ -56,22 +57,20 @@ it('игнорирует неизвестное сохранённое знач�
 it('сохраняет выбор и следит за системой только в системном режиме', async () => {
   const changeSystemTheme = mockSystemTheme(true)
   render(<ThemeSelect />)
-  const select = screen.getByRole('combobox', { name: 'Тема' })
-
-  await userEvent.selectOptions(select, 'light')
+  await userEvent.click(screen.getByRole('radio', { name: 'Светлая' }))
   expectTheme('light', 'light')
   expect(localStorage.getItem('bendmark.theme')).toBe('light')
   changeSystemTheme(false)
   changeSystemTheme(true)
   expectTheme('light', 'light')
 
-  await userEvent.selectOptions(select, 'dark')
+  await userEvent.click(screen.getByRole('radio', { name: 'Тёмная' }))
   expectTheme('dark', 'dark')
   expect(localStorage.getItem('bendmark.theme')).toBe('dark')
   changeSystemTheme(false)
   expectTheme('dark', 'dark')
 
-  await userEvent.selectOptions(select, 'system')
+  await userEvent.click(screen.getByRole('radio', { name: 'Системная' }))
   expectTheme('system', 'light')
   expect(localStorage.getItem('bendmark.theme')).toBe('system')
   changeSystemTheme(true)
@@ -86,7 +85,7 @@ it('следит за системой при недоступном храни�
   render(<ThemeSelect />)
   expectTheme('system', 'dark')
 
-  await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Тема' }), 'light')
+  await userEvent.click(screen.getByRole('radio', { name: 'Светлая' }))
   expectTheme('system', 'dark')
   changeSystemTheme(false)
   expectTheme('system', 'light')
