@@ -17,6 +17,10 @@ export function anyAbove<T extends object>(points: T[], keys: (keyof T & string)
   return points.some((p) => keys.some((k) => isAboveAxis(p[k] as number | null, axis)))
 }
 
+export function overflowNote(axis: Axis): string {
+  return `Задержка выше ${formatNumber(axis.domain[1])} мс отмечена красными точками у верхнего края. Точные значения есть в подсказках и таблице ступеней.`
+}
+
 // Точка серии; за краем оси — залитая цветом отказа
 export function overflowDot(key: string, axis: Axis, color: string) {
   return function OverflowDot({ cx, cy, index, payload }: DotItemDotProps) {

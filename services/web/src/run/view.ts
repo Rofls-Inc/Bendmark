@@ -40,18 +40,13 @@ export function latencyAxis(points: LatencyPoint[], threshold = P99_THRESHOLD_MS
   return latencyMax(points.flatMap((p) => [p.p50, p.p90, p.p99]), threshold)
 }
 
-// Потолок оси задержки — четыре порога. Задержка в десятки секунд (генератор не успевает)
-// иначе растянула бы ось так, что порог и нормальные ступени прилипли бы к нулю.
-// Что выше потолка, рисуется у верхнего края (см. clampToAxis), точное значение — в подсказке.
+// Перед округлением ограничиваем максимум четырьмя порогами. Тогда верх оси не
+// уменьшается при росте задержки. Всё выше округлённого верха рисуется у края.
 const LATENCY_CAP_FACTOR = 4
 
 function latencyMax(raw: (number | null)[], threshold: number): Axis {
   const max = Math.max(threshold, ...raw.filter((v): v is number => v !== null))
-  const cap = threshold * LATENCY_CAP_FACTOR
-  if (max <= cap)
-    return linearAxis(max)
-  const step = niceStep(cap / 4)
-  return { domain: [0, cap], ticks: Array.from({ length: Math.round(cap / step) + 1 }, (_, i) => i * step) }
+  return linearAxis(Math.min(max, threshold * LATENCY_CAP_FACTOR))
 }
 
 // Значение в пределах оси: выше верхнего края — на краю. null остаётся null
@@ -91,13 +86,12 @@ export function hasVerdicts(analysis: Analysis | null): analysis is Analysis {
 }
 
 // Как подписать ступень в отчёте: «норма», «предел» (последняя без отказа), «отказ»,
-// после отказа, «не анализ.» — ступени, которые не ушли анализатору (после пропусков или остановки)
+// после отказа, «не анализ.» — с первой ступени с пропусками
 export function stepVerdict(step: StepResult, analysis: Analysis | null): StepVerdict | null {
   if (!hasVerdicts(analysis))
     return null
   const failed = analysis.failed_step_index
-  // Сначала — дошла ли ступень до анализатора: ступень после отказа, которую он не видел
-  // (пропуски, остановка), иначе осталась бы без подписи, как будто её проверили
+  // Ступени за границей анализа могли идти после отказа, но их нужно явно отметить.
   if (step.index > analysis.analyzed_steps)
     return 'not-analyzed'
   if (failed !== null && step.index > failed)

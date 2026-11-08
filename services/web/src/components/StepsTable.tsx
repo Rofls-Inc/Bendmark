@@ -1,5 +1,5 @@
 import type { Analysis, StepResult } from '../api/types'
-import { P99_THRESHOLD_MS, firstSkippedStep, formatNumber, hasVerdicts, stepVerdict, type StepVerdict } from '../run/view'
+import { P99_THRESHOLD_MS, formatNumber, hasVerdicts, stepVerdict, type StepVerdict } from '../run/view'
 
 interface Props {
   steps: StepResult[]
@@ -16,19 +16,11 @@ const verdictLabel: Record<StepVerdict, string> = {
   'not-analyzed': 'не анализ.',
 }
 
-// Почему ступень не дошла до анализатора
-function notAnalyzedReason(index: number, skippedFrom: number | null): string {
-  return skippedFrom !== null && index >= skippedFrom
-    ? 'Агент не успевал отправлять запросы — замер неточный, анализатор его не берёт'
-    : 'Ступень не попала в анализ: прогон остановлен'
-}
-
 export function StepsTable({ steps, analysis = null, runningStep }: Props) {
   const sorted = [...steps].sort((a, b) => a.index - b.index)
   const withVerdicts = hasVerdicts(analysis)
   // Колонка пропусков нужна, только если агент хоть раз не успевал
   const showSkipped = sorted.some((s) => s.skipped_count > 0)
-  const skippedFrom = firstSkippedStep(sorted)
   const columns = 7 + (showSkipped ? 1 : 0) + (withVerdicts ? 1 : 0)
 
   return (
@@ -74,7 +66,8 @@ export function StepsTable({ steps, analysis = null, runningStep }: Props) {
                   </td>
                 )}
                 {withVerdicts && (
-                  <td className="verdict" title={verdict === 'not-analyzed' ? notAnalyzedReason(s.index, skippedFrom) : undefined}>
+                  <td className="verdict" title={verdict === 'not-analyzed'
+                    ? 'В анализ вошли только ступени до первой с пропусками' : undefined}>
                     {verdict && verdictLabel[verdict]}
                   </td>
                 )}

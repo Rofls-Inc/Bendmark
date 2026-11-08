@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import type { Analysis, Run, StepResult } from '../api/types'
 import { demoRun, demoRuns } from '../demo/demoRun'
 import {
+  clampToAxis,
   currentStep,
   firstSkippedStep,
   formatClock,
   formatDuration,
   headline,
+  isAboveAxis,
   latencyAxis,
   needsPolling,
   p99Axis,
@@ -72,6 +74,12 @@ describe('stepVerdict', () => {
     expect([1, 2, 3, 4].map((i) => stepVerdict(step(i), cut))).toEqual(['ok', 'ok', 'not-analyzed', 'not-analyzed'])
   })
 
+  it('ступени после отказа, не ушедшие анализатору (пропуски), — «не анализ.», а не пустая подпись', () => {
+    const found = analysis({ limit_rps: 100, failed_step_index: 2, reasons: ['p99'], analyzed_steps: 3 })
+    expect([1, 2, 3, 4, 5].map((i) => stepVerdict(step(i), found)))
+      .toEqual(['limit', 'failed', 'after', 'not-analyzed', 'not-analyzed'])
+  })
+
   it('отказ на первой ступени: предела нет', () => {
     const first = analysis({ failed_step_index: 1, reasons: ['ошибки'] })
     expect([1, 2].map((i) => stepVerdict(step(i), first))).toEqual(['failed', 'after'])
@@ -105,6 +113,11 @@ describe('headline', () => {
   it('предел ниже первой ступени: значение — её нагрузка, карточка покажет «< 100»', () => {
     expect(headline(run(analysis({ failed_step_index: 1, reasons: ['x'] }))))
       .toMatchObject({ kind: 'below-first', value: 100 })
+  })
+
+  it('предел ниже первой ступени, но ступени отказа нет в прогоне: значения нет', () => {
+    const r = run(analysis({ failed_step_index: 9, reasons: ['x'] }))
+    expect(headline(r)).toMatchObject({ kind: 'below-first', value: null })
   })
 
   it('анализ идёт', () => {
@@ -180,6 +193,35 @@ describe('оси графика', () => {
 
   it('без измерений p99 ось строится по порогу', () => {
     expect(p99Axis([]).domain).toEqual([0, 600])
+  })
+})
+
+describe('потолок оси задержки', () => {
+  const at = (p99: number) => toChartPoints([step(1, { latency_ms: { p50: 1, p90: 2, p99 } })])
+
+  it('десятки секунд не растягивают ось: верх как у оси для четырёх порогов', () => {
+    expect(p99Axis(at(40_000))).toEqual({ domain: [0, 2500], ticks: [0, 500, 1000, 1500, 2000, 2500] })
+  })
+
+  it('у границы потолка ось не прыгает: 1 950 и 2 100 мс на одной оси и обе видны честно', () => {
+    expect(p99Axis(at(1950)).domain).toEqual([0, 2500])
+    expect(p99Axis(at(2100)).domain).toEqual([0, 2500])
+    expect(isAboveAxis(2100, p99Axis(at(2100)))).toBe(false)
+  })
+
+  it('потолок считается от переданного порога', () => {
+    expect(p99Axis(at(40_000), 100).domain).toEqual([0, 500])
+  })
+
+  it('перцентили p50 и p90 тоже упираются в потолок', () => {
+    const points = toLatencyPoints([step(1, { latency_ms: { p50: 9000, p90: 30_000, p99: 40_000 } })])
+    expect(latencyAxis(points).domain).toEqual([0, 2500])
+  })
+
+  it('clampToAxis прижимает к верху, null оставляет', () => {
+    const axis = { domain: [0, 2500] as [number, number], ticks: [] }
+    expect([clampToAxis(40_000, axis), clampToAxis(900, axis), clampToAxis(null, axis)]).toEqual([2500, 900, null])
+    expect([isAboveAxis(2500, axis), isAboveAxis(2501, axis), isAboveAxis(null, axis)]).toEqual([false, true, false])
   })
 })
 

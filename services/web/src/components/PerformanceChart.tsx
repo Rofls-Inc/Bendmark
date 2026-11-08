@@ -10,9 +10,9 @@ import {
   YAxis,
 } from 'recharts'
 import type { StepResult } from '../api/types'
-import { anyAbove, overflowDot, shownFormatter, withShown } from './axisOverflow'
+import { anyAbove, overflowDot, overflowNote, shownFormatter, withShown } from './axisOverflow'
 import { axisProps, gridProps, legendProps, thresholdLabel, tooltipProps } from './chartStyle'
-import { P99_THRESHOLD_MS, formatNumber, p99Axis, rpsAxis, toChartPoints, type ChartPoint } from '../run/view'
+import { P99_THRESHOLD_MS, p99Axis, rpsAxis, toChartPoints, type ChartPoint } from '../run/view'
 
 interface Props {
   steps: StepResult[]
@@ -98,12 +98,7 @@ export function PerformanceChart({ steps, limitRps }: Props) {
           />
         </LineChart>
       </ResponsiveContainer>
-      {above && (
-        <p className="hint chart-note">
-          p99 выше {formatNumber(p99.domain[1])} мс показан у верхнего края красной точкой,
-          точные значения — в подсказке и таблице ступеней
-        </p>
-      )}
+      {above && <p className="hint">{overflowNote(p99)}</p>}
     </div>
   )
 }
