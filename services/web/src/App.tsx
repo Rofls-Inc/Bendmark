@@ -3,6 +3,7 @@ import { Link, NavLink, Route, Routes, useLocation } from 'react-router'
 import type { RunSummary } from './api/types'
 import { Logo } from './components/Logo'
 import { State } from './components/State'
+import { ThemeSelect } from './components/ThemeSelect'
 import { DEMO_RUN_ID } from './demo/demoRun'
 import { refreshRecent, useRecentRuns } from './run/recent'
 import { formatNumber } from './run/view'
@@ -106,6 +107,8 @@ function Sidebar() {
             <span className="recent-name">{demo.label}</span>
           </NavLink>
         ))}
+
+        <ThemeSelect />
       </div>
     </nav>
   )

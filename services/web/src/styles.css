@@ -17,7 +17,7 @@
   /* Текст */
   --text-1: #e6e8eb;
   --text-2: #a2a8b0;
-  --text-3: #80878f;
+  --text-3: #89919a;
   --text-4: #4b5158; /* только линии и маркеры: для текста контраста не хватает */
 
   /* Акцент */
@@ -82,6 +82,45 @@
   font: 400 var(--fs-body) / 20px var(--font-ui);
   color: var(--text-2);
   background: var(--bg);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-sunken: #e9e9f0;
+  --bg: #f4f4f8;
+  --surface: #ffffff;
+  --surface-2: #ededf4;
+  --surface-3: #fafaff;
+
+  --line-1: rgba(36, 29, 53, 0.12);
+  --line-2: rgba(36, 29, 53, 0.26);
+  --line-3: rgba(36, 29, 53, 0.45);
+
+  --text-1: #201d2b;
+  --text-2: #40394d;
+  --text-3: #595167;
+  --text-4: #81798f; /* только линии и маркеры */
+
+  --accent: #70477f;
+  --accent-strong: #593564;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(112, 71, 127, 0.1);
+  --accent-line: rgba(112, 71, 127, 0.55);
+
+  --ok: #1c644b;
+  --ok-soft: rgba(28, 100, 75, 0.1);
+  --bad: #a12832;
+  --bad-soft: rgba(161, 40, 50, 0.09);
+  --bad-line: rgba(161, 40, 50, 0.55);
+  --warn: #785000;
+  --warn-soft: rgba(120, 80, 0, 0.09);
+  --warn-line: rgba(120, 80, 0, 0.55);
+
+  /* Серии target, p50 и p90 наследуют текстовые токены. */
+  --series-throughput: #275e98;
+  --series-p99: #9b481e;
+  --chart-grid: rgba(36, 29, 53, 0.16);
 }
 
 * {
@@ -270,6 +309,26 @@ main {
 
 .nav-note.error {
   color: var(--bad);
+}
+
+.theme-select {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin: var(--s-4) var(--s-2) var(--s-1);
+  color: var(--text-3);
+  font-size: var(--fs-caption);
+}
+
+.theme-select select {
+  min-height: var(--h-control);
+  padding: 0 var(--s-2);
+  color: var(--text-1);
+  font: inherit;
+  background: var(--surface-2);
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-md);
 }
 
 .recent-name {
