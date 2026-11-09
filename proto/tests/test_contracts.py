@@ -43,7 +43,11 @@ class EchoAnalyzer(analyzer_pb2_grpc.AnalyzerServiceServicer):
         if not request.options.HasField("max_error_percent") or request.options.max_error_percent != 0:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "Explicit zero threshold did not survive the RPC")
         return analyzer_pb2.FindLimitResponse(
-            limit=analyzer_pb2.Limit(found=True, failed_step_index=request.steps[0].index, reasons=["test"])
+            limit=analyzer_pb2.Limit(found=True, failed_step_index=request.steps[0].index, reasons=["test"]),
+            diagnosis=analyzer_pb2.Diagnosis(
+                status=analyzer_pb2.DIAGNOSIS_STATUS_TOO_FEW_STEPS,
+                explanation="test",
+            ),
         )
 
 
@@ -92,6 +96,33 @@ class ContractsTests(unittest.TestCase):
         self.assertEqual(response.limit.failed_step_index, 1)
         self.assertTrue(response.limit.HasField("failed_step_index"))
         self.assertFalse(response.limit.HasField("limit_rps"))
+
+    def test_find_limit_rpc_reports_missing_diagnosis_explicitly(self):
+        stub = analyzer_pb2_grpc.AnalyzerServiceStub(self.channel)
+        response = stub.FindLimit(analyzer_pb2.FindLimitRequest(
+            steps=[measured_step(1)],
+            options=analyzer_pb2.LimitOptions(max_error_percent=0),
+        ), timeout=5)
+        # Неподтверждённый предел: confirmed по умолчанию false
+        self.assertFalse(response.limit.confirmed)
+        self.assertTrue(response.HasField("diagnosis"))
+        self.assertEqual(response.diagnosis.status, analyzer_pb2.DIAGNOSIS_STATUS_TOO_FEW_STEPS)
+        self.assertEqual(response.diagnosis.cause, analyzer_pb2.CAUSE_UNSPECIFIED)
+        self.assertEqual(response.diagnosis.confidence, analyzer_pb2.CONFIDENCE_UNSPECIFIED)
+        self.assertEqual(list(response.diagnosis.evidence), [])
+
+    def test_diagnosis_enums_survive_serialization(self):
+        diagnosis = analyzer_pb2.Diagnosis(
+            status=analyzer_pb2.DIAGNOSIS_STATUS_DIAGNOSED,
+            cause=analyzer_pb2.CAUSE_SATURATION,
+            confidence=analyzer_pb2.CONFIDENCE_HIGH,
+            explanation="насыщение",
+            evidence=["пропускная упёрлась в 340 запр/с"],
+        )
+        restored = analyzer_pb2.Diagnosis.FromString(diagnosis.SerializeToString())
+        self.assertEqual(restored, diagnosis)
+        self.assertEqual(analyzer_pb2.Cause.Name(restored.cause), "CAUSE_SATURATION")
+        self.assertEqual(analyzer_pb2.Confidence.Name(restored.confidence), "CONFIDENCE_HIGH")
 
     def test_absent_options_are_distinct_from_explicit_zero(self):
         options = analyzer_pb2.LimitOptions()

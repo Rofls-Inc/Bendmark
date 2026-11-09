@@ -17,13 +17,61 @@ public enum AnalysisStatus
     Error,
 }
 
+// Есть ли диагноз; если нет - почему (#57)
+public enum DiagnosisStatus
+{
+    Diagnosed,
+    // Предел не найден: объяснять нечего
+    NoLimit,
+    // До первой ступени с отказом меньше двух ступеней: не с чем сравнить
+    TooFewSteps,
+}
+
+// Почему сервис упёрся в предел (по внешним признакам ступеней)
+public enum DiagnosisCause
+{
+    // Ошибки растут, задержка невысокая: 5xx, лимиты
+    Rejecting,
+    // Задержка резко растёт или упирается в потолок: очередь, ресурсы
+    SlowResponses,
+    // Пропускная упёрлась в потолок, p99 растёт плавно: CPU, пул соединений
+    Saturation,
+    // Признаки противоречат друг другу
+    Inconclusive,
+}
+
+public enum DiagnosisConfidence
+{
+    Low,
+    Medium,
+    High,
+}
+
+// Диагноз анализатора в analysis.diagnosis
+public sealed record Diagnosis
+{
+    public required DiagnosisStatus Status { get; init; }
+    // Только при Diagnosed
+    public DiagnosisCause? Cause { get; init; }
+    public DiagnosisConfidence? Confidence { get; init; }
+    // Итог для человека; если диагноза нет - почему
+    public required string Explanation { get; init; }
+    // Признаки, на которых основан диагноз; текст для человека
+    public IReadOnlyList<string> Evidence { get; init; } = [];
+}
+
 // Результат поиска предела в GET /runs/{id}
 public sealed record Analysis
 {
     public required AnalysisStatus Status { get; init; }
     public double? LimitRps { get; init; }
     public uint? FailedStepIndex { get; init; }
+    // Отказ подтверждён второй подряд ступенью с отказом; только при Found (#57)
+    public bool? LimitConfirmed { get; init; }
     public IReadOnlyList<string> Reasons { get; init; } = [];
+    // Ответ анализатора: есть при Found и NotFound; null, если анализатор не ответил
+    // или ответил без диагноза
+    public Diagnosis? Diagnosis { get; init; }
     // Сколько первых ступеней ушло анализатору: меньше всех ступеней, если прогон
     // остановлен посреди ступени или агент начал пропускать запросы
     public required int AnalyzedSteps { get; init; }
@@ -31,8 +79,14 @@ public sealed record Analysis
     public required string Message { get; init; }
 }
 
-// Ответ анализатора без деталей gRPC
-public sealed record LimitResult(bool Found, double? LimitRps, uint? FailedStepIndex, IReadOnlyList<string> Reasons);
+// Ответ анализатора без деталей gRPC. Confirmed имеет смысл только при Found
+public sealed record LimitResult(
+    bool Found,
+    double? LimitRps,
+    uint? FailedStepIndex,
+    IReadOnlyList<string> Reasons,
+    bool Confirmed = false,
+    Diagnosis? Diagnosis = null);
 
 // Что отдать анализатору и как объяснить результат
 public sealed class AnalysisPlan
@@ -84,6 +138,8 @@ public sealed class AnalysisPlan
             message = limit.LimitRps is { } rps
                 ? $"Предел: {Format(rps)} запр/с, отказ на {at}"
                 : $"Предел ниже первой ступени: отказ уже на {at}";
+            if (!limit.Confirmed)
+                message += ", предел не подтверждён: ступени закончились на первой с отказом";
         }
         else
         {
@@ -98,7 +154,9 @@ public sealed class AnalysisPlan
             Status = limit.Found ? AnalysisStatus.Found : AnalysisStatus.NotFound,
             LimitRps = limit.LimitRps,
             FailedStepIndex = limit.Found ? limit.FailedStepIndex : null,
+            LimitConfirmed = limit.Found ? limit.Confirmed : null,
             Reasons = limit.Reasons,
+            Diagnosis = limit.Diagnosis,
             AnalyzedSteps = Steps.Count,
             Message = Scope(message),
         };

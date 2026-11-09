@@ -74,6 +74,79 @@ public class GrpcAnalyzerTests
     }
 
     [Fact]
+    public async Task Maps_confirmed_limit_and_diagnosis()
+    {
+        var analyzer = new ScriptedAnalyzer
+        {
+            Respond = _ => new Proto.FindLimitResponse
+            {
+                Limit = new Proto.Limit { Found = true, LimitRps = 300, FailedStepIndex = 4, Confirmed = true },
+                Diagnosis = new Proto.Diagnosis
+                {
+                    Status = Proto.DiagnosisStatus.Diagnosed,
+                    Cause = Proto.Cause.Saturation,
+                    Confidence = Proto.Confidence.High,
+                    Explanation = "Насыщение",
+                    Evidence = { "ступень 4: пропускная 280 запр/с при цели 400" },
+                },
+            },
+        };
+        await using var host = await AnalyzerHost.StartAsync(analyzer);
+
+        var limit = await host.CreateClient().FindLimitAsync([TestData.Step(1, 100)], CancellationToken.None);
+
+        Assert.True(limit.Confirmed);
+        var diagnosis = Assert.IsType<Diagnosis>(limit.Diagnosis);
+        Assert.Equal(DiagnosisStatus.Diagnosed, diagnosis.Status);
+        Assert.Equal(DiagnosisCause.Saturation, diagnosis.Cause);
+        Assert.Equal(DiagnosisConfidence.High, diagnosis.Confidence);
+        Assert.Equal("Насыщение", diagnosis.Explanation);
+        Assert.Equal(new[] { "ступень 4: пропускная 280 запр/с при цели 400" }, diagnosis.Evidence);
+    }
+
+    [Fact]
+    public async Task Missing_diagnosis_has_no_cause_or_confidence()
+    {
+        var analyzer = new ScriptedAnalyzer
+        {
+            Respond = _ => new Proto.FindLimitResponse
+            {
+                Limit = new Proto.Limit { Found = false, LimitRps = 200 },
+                Diagnosis = new Proto.Diagnosis
+                {
+                    Status = Proto.DiagnosisStatus.NoLimit,
+                    Explanation = "Диагноза нет: предел не найден.",
+                },
+            },
+        };
+        await using var host = await AnalyzerHost.StartAsync(analyzer);
+
+        var limit = await host.CreateClient().FindLimitAsync([TestData.Step(1, 100)], CancellationToken.None);
+
+        var diagnosis = Assert.IsType<Diagnosis>(limit.Diagnosis);
+        Assert.Equal(DiagnosisStatus.NoLimit, diagnosis.Status);
+        Assert.Null(diagnosis.Cause);
+        Assert.Null(diagnosis.Confidence);
+        Assert.Empty(diagnosis.Evidence);
+    }
+
+    [Fact]
+    public async Task Response_without_diagnosis_still_maps_limit()
+    {
+        var analyzer = new ScriptedAnalyzer
+        {
+            Respond = _ => new Proto.FindLimitResponse { Limit = new Proto.Limit { Found = true, FailedStepIndex = 1 } },
+        };
+        await using var host = await AnalyzerHost.StartAsync(analyzer);
+
+        var limit = await host.CreateClient().FindLimitAsync([TestData.Step(1, 100)], CancellationToken.None);
+
+        Assert.True(limit.Found);
+        Assert.False(limit.Confirmed);
+        Assert.Null(limit.Diagnosis);
+    }
+
+    [Fact]
     public async Task Analyzer_status_is_passed_through_as_rpc_exception()
     {
         var analyzer = new ScriptedAnalyzer

@@ -6,6 +6,7 @@ import grpc
 import pytest
 
 from analyzer import server
+from analyzer.diagnosis import diagnose
 from analyzer.limit import find_limit
 from analyzer.result import load_result
 from bendmark.v1 import analyzer_pb2, analyzer_pb2_grpc, common_pb2
@@ -69,9 +70,12 @@ def test_every_fixture_matches_cli(stub, path):
         assert call_error(stub, req).code() == ERRORS[path.name]
         return
 
-    expected = find_limit(load_result(path), p99_threshold_ms=500)
-    limit = stub.FindLimit(req, timeout=5).limit
+    steps = load_result(path)
+    expected = find_limit(steps, p99_threshold_ms=500)
+    response = stub.FindLimit(req, timeout=5)
+    limit = response.limit
     assert limit.found == expected.found
+    assert limit.confirmed == expected.confirmed
     assert list(limit.reasons) == list(expected.reasons)
     assert limit.HasField("limit_rps") == (expected.limit_rps is not None)
     if expected.limit_rps is not None:
@@ -79,6 +83,17 @@ def test_every_fixture_matches_cli(stub, path):
     assert limit.HasField("failed_step_index") == expected.found
     if expected.found:
         assert limit.failed_step_index == expected.failed_step.index
+
+    # Сервис отдаёт тот же диагноз, что и CLI
+    diagnosis = diagnose(steps, expected, p99_threshold_ms=500)
+    assert response.HasField("diagnosis")
+    assert analyzer_pb2.DiagnosisStatus.Name(response.diagnosis.status) == f"DIAGNOSIS_STATUS_{diagnosis.status.name}"
+    cause = f"CAUSE_{diagnosis.cause.name}" if diagnosis.cause else "CAUSE_UNSPECIFIED"
+    assert analyzer_pb2.Cause.Name(response.diagnosis.cause) == cause
+    confidence = f"CONFIDENCE_{diagnosis.confidence.name}" if diagnosis.confidence else "CONFIDENCE_UNSPECIFIED"
+    assert analyzer_pb2.Confidence.Name(response.diagnosis.confidence) == confidence
+    assert response.diagnosis.explanation == diagnosis.explanation
+    assert list(response.diagnosis.evidence) == list(diagnosis.evidence)
 
 
 def test_limit_found_is_350_at_step_7(stub):
@@ -94,11 +109,37 @@ def test_no_limit_gives_lower_bound_without_failed_step(stub):
     assert list(limit.reasons) == []
 
 
+def test_limit_found_is_unconfirmed_with_low_confidence(stub):
+    response = stub.FindLimit(request(fixture_steps("limit-found.json")), timeout=5)
+    assert response.limit.found
+    assert not response.limit.confirmed
+    assert response.diagnosis.status == analyzer_pb2.DIAGNOSIS_STATUS_DIAGNOSED
+    assert response.diagnosis.confidence == analyzer_pb2.CONFIDENCE_LOW
+
+
+def test_confirmed_saturation(stub):
+    response = stub.FindLimit(request(fixture_steps("saturation.json")), timeout=5)
+    assert (response.limit.confirmed, response.limit.limit_rps, response.limit.failed_step_index) == (True, 300, 4)
+    assert response.diagnosis.cause == analyzer_pb2.CAUSE_SATURATION
+    assert response.diagnosis.confidence == analyzer_pb2.CONFIDENCE_HIGH
+    assert response.diagnosis.evidence
+
+
+def test_no_limit_has_explicit_no_diagnosis(stub):
+    diagnosis = stub.FindLimit(request(fixture_steps("outlier.json")), timeout=5).diagnosis
+    assert diagnosis.status == analyzer_pb2.DIAGNOSIS_STATUS_NO_LIMIT
+    assert diagnosis.cause == analyzer_pb2.CAUSE_UNSPECIFIED
+    assert diagnosis.confidence == analyzer_pb2.CONFIDENCE_UNSPECIFIED
+    assert diagnosis.explanation == "Диагноза нет: предел не найден."
+    assert list(diagnosis.evidence) == []
+
+
 def test_first_step_failure_has_no_limit_rps(stub):
     limit = stub.FindLimit(request(fixture_steps("first-step-failure.json")), timeout=5).limit
     assert limit.found
     assert not limit.HasField("limit_rps")
     assert limit.failed_step_index == 1
+    assert limit.confirmed
 
 
 def test_skipped_requests_are_failed_precondition(stub):

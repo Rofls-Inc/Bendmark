@@ -27,6 +27,15 @@ public sealed class AgentOptions
     // последние запросы ступени могут ждать ответа до этого таймаута
     public double RequestTimeoutSeconds { get; set; } = 5;
 
+    // Сколько раз повторить Run, если агент ответил RESOURCE_EXHAUSTED (занят другим прогоном).
+    // 0 - без повторов. Всего вызовов Run - до BusyRetryCount + 1
+    public int BusyRetryCount { get; set; } = 3;
+
+    // Пауза перед каждым повтором
+    public double BusyRetryDelaySeconds { get; set; } = 5;
+
+    public TimeSpan BusyRetryDelay => TimeSpan.FromSeconds(BusyRetryDelaySeconds);
+
     public static readonly TimeSpan RunDeadlineMargin = TimeSpan.FromSeconds(30);
 
     // Сумма длительностей + ступени × таймаут запроса + 30 с запаса

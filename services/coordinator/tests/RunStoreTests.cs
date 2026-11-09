@@ -25,9 +25,18 @@ public sealed class RunStoreTests : IDisposable
         Status = AnalysisStatus.Found,
         LimitRps = 100,
         FailedStepIndex = 2,
+        LimitConfirmed = true,
         Reasons = ["p99 выше порога"],
         AnalyzedSteps = 2,
         Message = "Предел: 100 запр/с",
+        Diagnosis = new Diagnosis
+        {
+            Status = DiagnosisStatus.Diagnosed,
+            Cause = DiagnosisCause.SlowResponses,
+            Confidence = DiagnosisConfidence.Medium,
+            Explanation = "Сервис не успевает отвечать",
+            Evidence = ["ступень 2: p99 30 → 900 мс"],
+        },
     };
 
     [Fact]
@@ -57,6 +66,13 @@ public sealed class RunStoreTests : IDisposable
         Assert.Equal(100, run.Analysis.LimitRps);
         Assert.Equal(2u, run.Analysis.FailedStepIndex);
         Assert.Equal(["p99 выше порога"], run.Analysis.Reasons);
+        Assert.True(run.Analysis.LimitConfirmed);
+        var diagnosis = run.Analysis.Diagnosis!;
+        Assert.Equal(DiagnosisStatus.Diagnosed, diagnosis.Status);
+        Assert.Equal(DiagnosisCause.SlowResponses, diagnosis.Cause);
+        Assert.Equal(DiagnosisConfidence.Medium, diagnosis.Confidence);
+        Assert.Equal("Сервис не успевает отвечать", diagnosis.Explanation);
+        Assert.Equal(["ступень 2: p99 30 → 900 мс"], diagnosis.Evidence);
     }
 
     [Fact]

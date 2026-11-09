@@ -46,6 +46,17 @@ export interface Analysis {
   analyzed_steps: number
   // Итог для человека от координатора
   message: string
+  // Диагноз анализатора; null — анализатор не ответил или старый, без диагноза
+  diagnosis?: Diagnosis | null
+}
+
+export interface Diagnosis {
+  status: 'diagnosed' | 'no_limit' | 'too_few_steps'
+  // cause и confidence — только при diagnosed
+  cause: 'rejecting' | 'slow_responses' | 'saturation' | 'inconclusive' | null
+  confidence: 'low' | 'medium' | 'high' | null
+  explanation: string
+  evidence: string[]
 }
 
 export interface Run {
@@ -60,4 +71,23 @@ export interface Run {
   steps: StepResult[]
   // null, пока прогон не завершён, и у failed или без ступеней
   analysis: Analysis | null
+}
+
+// Строка списка GET /runs: без сценария и ступеней
+export interface RunSummary {
+  id: string
+  scenario_name: string
+  status: RunStatus
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+  // Из analysis прогона, null, пока анализа нет
+  analysis_status: AnalysisStatus | null
+  limit_rps: number | null
+}
+
+export interface RunList {
+  runs: RunSummary[]
+  // id для следующей страницы (?before=), null - страниц больше нет
+  next_before: string | null
 }

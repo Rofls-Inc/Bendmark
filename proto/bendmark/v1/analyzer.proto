@@ -31,18 +31,76 @@ message LimitOptions {
 
 message FindLimitResponse {
   Limit limit = 1;
+  // Always set by the analyzer. Built from StepResult only: v1 has no service metrics.
+  Diagnosis diagnosis = 2;
 }
 
 message Limit {
-  // True if at least one supplied step meets a failure criterion.
+  // True if two consecutive supplied steps meet a failure criterion, or if the
+  // supplied steps end on a single failed step (then confirmed=false).
+  // A single failed step followed by a normal step is an outlier, not a limit.
   bool found = 1;
-  // Last successful step's target_rps. Absent if the first step failed.
+  // target_rps of the step before the first of the failed steps.
+  // Absent if the first supplied step failed.
   // If found=false, this is a lower bound, not a measured maximum.
   optional double limit_rps = 2;
-  // One-based StepResult.index of the first failed step, not an array offset.
+  // One-based StepResult.index of the first of the failed steps, not an array offset.
   // Absent when found=false.
   optional uint32 failed_step_index = 3;
-  // Human-readable explanations, matching analyzer.find_limit.
-  // Non-empty when found=true; clients must not parse these strings as codes.
+  // Human-readable explanations, matching analyzer.find_limit: why the failed
+  // steps failed, then warnings about outliers. Non-empty when found=true;
+  // may be non-empty when found=false (outliers only).
+  // Clients must not parse these strings as codes.
   repeated string reasons = 4;
+  // True if the failure was confirmed by the next step failing too.
+  // False when found=true but the steps end on the single failed step:
+  // the limit is reported with lower confidence. Always false when found=false.
+  bool confirmed = 5;
+}
+
+// Why the service hit its limit, judged by external signs only.
+message Diagnosis {
+  DiagnosisStatus status = 1;
+  // Set only when status=DIAGNOSIS_STATUS_DIAGNOSED.
+  Cause cause = 2;
+  // Set only when status=DIAGNOSIS_STATUS_DIAGNOSED. LOW for CAUSE_INCONCLUSIVE
+  // and whenever Limit.confirmed=false.
+  Confidence confidence = 3;
+  // Human-readable summary, always non-empty: the diagnosis, or why there is none.
+  string explanation = 4;
+  // Human-readable signs the diagnosis is based on, with step indexes where useful.
+  // Non-empty when status=DIAGNOSIS_STATUS_DIAGNOSED, otherwise empty.
+  // Clients must not parse these strings as codes.
+  repeated string evidence = 5;
+}
+
+enum DiagnosisStatus {
+  DIAGNOSIS_STATUS_UNSPECIFIED = 0;
+  // cause, confidence and evidence are set.
+  DIAGNOSIS_STATUS_DIAGNOSED = 1;
+  // Limit.found=false: nothing to explain.
+  DIAGNOSIS_STATUS_NO_LIMIT = 2;
+  // Fewer than two steps before Limit.failed_step_index: no trend to compare.
+  DIAGNOSIS_STATUS_TOO_FEW_STEPS = 3;
+}
+
+enum Cause {
+  CAUSE_UNSPECIFIED = 0;
+  // Errors grow while latency stays low: the service rejects load (5xx, rate limits).
+  CAUSE_REJECTING = 1;
+  // Latency jumps or hits a ceiling, timeouts grow: requests queue up,
+  // the service cannot answer in time (queue, resources).
+  CAUSE_SLOW_RESPONSES = 2;
+  // Throughput stops growing while p99 rises smoothly and errors stay low:
+  // the service is saturated (CPU, connection pool).
+  CAUSE_SATURATION = 3;
+  // Signs contradict each other or match no rule. Confidence is always LOW.
+  CAUSE_INCONCLUSIVE = 4;
+}
+
+enum Confidence {
+  CONFIDENCE_UNSPECIFIED = 0;
+  CONFIDENCE_LOW = 1;
+  CONFIDENCE_MEDIUM = 2;
+  CONFIDENCE_HIGH = 3;
 }

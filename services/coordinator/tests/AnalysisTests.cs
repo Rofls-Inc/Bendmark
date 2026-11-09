@@ -39,7 +39,7 @@ public class AnalysisTests
         await using var factory = new CoordinatorFactory();
         var (client, id) = await StartRunAsync(factory, 100, 150);
         factory.Analyzer.Respond = _ => Task.FromResult(
-            new LimitResult(true, 100, 2, ["p99 900 мс выше порога 500 мс"]));
+            new LimitResult(true, 100, 2, ["p99 900 мс выше порога 500 мс"], Confirmed: true));
 
         factory.Agent.SendStep(TestData.Step(1, 100));
         factory.Agent.SendStep(TestData.Step(2, 150, 6750));
@@ -53,9 +53,94 @@ public class AnalysisTests
         Assert.Equal("p99 900 мс выше порога 500 мс", analysis.GetProperty("reasons")[0].GetString());
         Assert.Equal(2, analysis.GetProperty("analyzed_steps").GetInt32());
         Assert.Equal("Предел: 100 запр/с, отказ на ступени 2 (150 запр/с)", Message(analysis));
+        Assert.True(analysis.GetProperty("limit_confirmed").GetBoolean());
 
         var sent = Assert.Single(factory.Analyzer.Calls);
         Assert.Equal(new uint[] { 1, 2 }, sent.Select(step => step.Index));
+    }
+
+    [Fact]
+    public async Task Diagnosis_is_shown_in_run()
+    {
+        await using var factory = new CoordinatorFactory();
+        var (client, id) = await StartRunAsync(factory, 100, 150, 200, 250);
+        factory.Analyzer.Respond = _ => Task.FromResult(new LimitResult(
+            true, 150, 3, ["ступень 3: ошибок 30.0 % при пороге 1 %", "ступень 4: ошибок 45.0 % при пороге 1 %"],
+            Confirmed: true,
+            Diagnosis: new Diagnosis
+            {
+                Status = DiagnosisStatus.Diagnosed,
+                Cause = DiagnosisCause.Rejecting,
+                Confidence = DiagnosisConfidence.High,
+                Explanation = "Сервис отклоняет нагрузку",
+                Evidence = ["ступень 3: ошибок 30.0 %", "ступень 3: p99 25 → 16 мс"],
+            }));
+
+        factory.Agent.SendStep(TestData.Step(1, 100));
+        factory.Agent.SendStep(TestData.Step(2, 150, 6750));
+        factory.Agent.SendStep(TestData.Step(3, 200, 9000, errorCount: 2700));
+        factory.Agent.SendStep(TestData.Step(4, 250, 11250, errorCount: 5000));
+        factory.Agent.Finish();
+
+        var diagnosis = (await WaitForAnalysisAsync(client, id, "found")).GetProperty("analysis").GetProperty("diagnosis");
+        Assert.Equal("diagnosed", diagnosis.GetProperty("status").GetString());
+        Assert.Equal("rejecting", diagnosis.GetProperty("cause").GetString());
+        Assert.Equal("high", diagnosis.GetProperty("confidence").GetString());
+        Assert.Equal("Сервис отклоняет нагрузку", diagnosis.GetProperty("explanation").GetString());
+        Assert.Equal(new[] { "ступень 3: ошибок 30.0 %", "ступень 3: p99 25 → 16 мс" },
+            diagnosis.GetProperty("evidence").EnumerateArray().Select(line => line.GetString()));
+    }
+
+    [Fact]
+    public async Task Unconfirmed_limit_is_marked_in_message()
+    {
+        await using var factory = new CoordinatorFactory();
+        var (client, id) = await StartRunAsync(factory, 100, 150);
+        factory.Analyzer.Respond = _ => Task.FromResult(new LimitResult(
+            true, 100, 2, ["ступень 2: p99 900 мс выше порога 500 мс"],
+            Confirmed: false,
+            Diagnosis: new Diagnosis
+            {
+                Status = DiagnosisStatus.Diagnosed,
+                Cause = DiagnosisCause.SlowResponses,
+                Confidence = DiagnosisConfidence.Low,
+                Explanation = "Вероятно, сервис не успевает отвечать",
+                Evidence = ["ступень 2: p99 30 → 900 мс"],
+            }));
+
+        factory.Agent.SendStep(TestData.Step(1, 100));
+        factory.Agent.SendStep(TestData.Step(2, 150, 6750));
+        factory.Agent.Finish();
+
+        var analysis = (await WaitForAnalysisAsync(client, id, "found")).GetProperty("analysis");
+        Assert.False(analysis.GetProperty("limit_confirmed").GetBoolean());
+        Assert.Equal(
+            "Предел: 100 запр/с, отказ на ступени 2 (150 запр/с), предел не подтверждён: ступени закончились на первой с отказом",
+            Message(analysis));
+        Assert.Equal("low", analysis.GetProperty("diagnosis").GetProperty("confidence").GetString());
+    }
+
+    [Fact]
+    public async Task Not_found_has_explicit_no_diagnosis()
+    {
+        await using var factory = new CoordinatorFactory();
+        var (client, id) = await StartRunAsync(factory, 100, 200);
+        factory.Analyzer.Respond = steps => Task.FromResult(new LimitResult(
+            false, steps[^1].TargetRps, null, [],
+            Diagnosis: new Diagnosis { Status = DiagnosisStatus.NoLimit, Explanation = "Диагноза нет: предел не найден." }));
+
+        factory.Agent.SendStep(TestData.Step(1, 100));
+        factory.Agent.SendStep(TestData.Step(2, 200, 9000));
+        factory.Agent.Finish();
+
+        var analysis = (await WaitForAnalysisAsync(client, id, "not_found")).GetProperty("analysis");
+        Assert.Equal(JsonValueKind.Null, analysis.GetProperty("limit_confirmed").ValueKind);
+        var diagnosis = analysis.GetProperty("diagnosis");
+        Assert.Equal("no_limit", diagnosis.GetProperty("status").GetString());
+        Assert.Equal(JsonValueKind.Null, diagnosis.GetProperty("cause").ValueKind);
+        Assert.Equal(JsonValueKind.Null, diagnosis.GetProperty("confidence").ValueKind);
+        Assert.Equal("Диагноза нет: предел не найден.", diagnosis.GetProperty("explanation").GetString());
+        Assert.Equal(0, diagnosis.GetProperty("evidence").GetArrayLength());
     }
 
     [Fact]
@@ -63,7 +148,8 @@ public class AnalysisTests
     {
         await using var factory = new CoordinatorFactory();
         var (client, id) = await StartRunAsync(factory, 100);
-        factory.Analyzer.Respond = _ => Task.FromResult(new LimitResult(true, null, 1, ["пропускная выросла на 30 запр/с при росте нагрузки на 100 запр/с"]));
+        factory.Analyzer.Respond = _ => Task.FromResult(new LimitResult(
+            true, null, 1, ["пропускная выросла на 30 запр/с при росте нагрузки на 100 запр/с"], Confirmed: true));
 
         factory.Agent.SendStep(TestData.Step(1, 100));
         factory.Agent.Finish();
@@ -126,6 +212,8 @@ public class AnalysisTests
         Assert.Equal("completed", Api.Status(run));
         Assert.Equal(JsonValueKind.Null, run.GetProperty("error").ValueKind);
         Assert.Contains("сломался", Message(run.GetProperty("analysis")));
+        // Анализатор не ответил - диагноза нет вовсе
+        Assert.Equal(JsonValueKind.Null, run.GetProperty("analysis").GetProperty("diagnosis").ValueKind);
         Assert.Equal(1, Api.StepCount(run));
     }
 
@@ -224,7 +312,7 @@ public class AnalysisTests
     {
         await using var factory = new CoordinatorFactory();
         var (client, id) = await StartRunAsync(factory, 100, 150, 200);
-        factory.Analyzer.Respond = _ => Task.FromResult(new LimitResult(true, 100, 2, ["ошибок 5.0 % при пороге 1 %"]));
+        factory.Analyzer.Respond = _ => Task.FromResult(new LimitResult(true, 100, 2, ["ошибок 5.0 % при пороге 1 %"], Confirmed: true));
 
         factory.Agent.SendStep(TestData.Step(1, 100));
         factory.Agent.SendStep(TestData.Step(2, 150, 6750, errorCount: 340));

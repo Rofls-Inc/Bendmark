@@ -38,6 +38,8 @@ def test_limit_found_fixture_is_350():
     assert limit.limit_rps == 350
     assert limit.failed_step.index == 7
     assert len(limit.reasons) == 3
+    # Рампа кончилась на первой провальной ступени: второй, подтверждающей, нет
+    assert not limit.confirmed
 
 
 def test_cli_prints_limit(capsys):
@@ -50,7 +52,7 @@ def test_p99_over_threshold_while_throughput_grows():
 
     assert limit.limit_rps == 200
     assert limit.failed_step.index == 3
-    assert limit.reasons == ("p99 600 мс выше порога 500 мс",)
+    assert limit.reasons == ("ступень 3: p99 600 мс выше порога 500 мс",)
 
 
 def test_throughput_stalls_while_p99_is_fine():
@@ -58,7 +60,7 @@ def test_throughput_stalls_while_p99_is_fine():
 
     assert limit.limit_rps == 200
     assert limit.failed_step.index == 3
-    assert "пропускная выросла на 20" in limit.reasons[0]
+    assert limit.reasons[0].startswith("ступень 3: пропускная выросла на 20")
 
 
 def test_fast_errors_while_throughput_grows():
@@ -66,7 +68,7 @@ def test_fast_errors_while_throughput_grows():
 
     assert limit.limit_rps == 200
     assert limit.failed_step.index == 3
-    assert limit.reasons == ("ошибок 30.0 % при пороге 1 %",)
+    assert limit.reasons == ("ступень 3: ошибок 30.0 % при пороге 1 %",)
 
 
 def test_errors_below_threshold_are_not_failure():
@@ -79,8 +81,85 @@ def test_failure_on_first_step():
     limit = find_limit(load_result(RESULTS / "first-step-failure.json"), p99_threshold_ms=500)
 
     assert limit.found
+    assert limit.confirmed
     assert limit.limit_rps is None
     assert limit.failed_step.index == 1
+
+
+# Отказ подтверждает вторая подряд провальная ступень
+
+def test_two_failures_in_a_row_confirm_the_limit():
+    limit = find_limit(load_result(RESULTS / "rejecting.json"), p99_threshold_ms=500)
+
+    assert limit.found
+    assert limit.confirmed
+    assert limit.limit_rps == 200
+    assert limit.failed_step.index == 3
+    assert [step.index for step in limit.failed_steps] == [3, 4]
+    assert limit.reasons == (
+        "ступень 3: ошибок 30.0 % при пороге 1 %",
+        "ступень 4: ошибок 45.0 % при пороге 1 %",
+    )
+
+
+def test_single_outlier_mid_run_is_not_a_limit():
+    limit = find_limit(load_result(RESULTS / "outlier.json"), p99_threshold_ms=500)
+
+    assert not limit.found
+    assert not limit.confirmed
+    assert limit.failed_step is None
+    assert limit.limit_rps == 400
+    assert len(limit.reasons) == 1
+    assert limit.reasons[0].startswith("предупреждение: ступень 2 - одиночный отказ")
+    assert "p99 700 мс выше порога 500 мс" in limit.reasons[0]
+
+
+def test_single_failure_on_last_step_is_unconfirmed_limit():
+    limit = find_limit(load_result(RESULTS / "p99-threshold.json"), p99_threshold_ms=500)
+
+    assert limit.found
+    assert not limit.confirmed
+    assert limit.limit_rps == 200
+    assert [step.index for step in limit.failed_steps] == [3]
+
+
+def test_outlier_before_confirmed_limit_stays_a_warning():
+    # 2 - выброс, 3 в норме, 4 и 5 - подтверждённый отказ: предел - ступень 3
+    limit = find_limit(steps((100, 100, 20), (200, 200, 700), (300, 300, 30), (400, 400, 800), (500, 500, 900)),
+                       p99_threshold_ms=500)
+
+    assert limit.confirmed
+    assert limit.limit_rps == 300
+    assert limit.failed_step.index == 4
+    assert limit.reasons[:2] == ("ступень 4: p99 800 мс выше порога 500 мс", "ступень 5: p99 900 мс выше порога 500 мс")
+    assert limit.reasons[2].startswith("предупреждение: ступень 2")
+
+
+def test_outlier_followed_by_unconfirmed_failure():
+    # Выброс и неподтверждённый отказ на последней ступени: предел - ступень перед последней
+    limit = find_limit(steps((100, 100, 20), (200, 200, 700), (300, 300, 30), (400, 400, 800)), p99_threshold_ms=500)
+
+    assert limit.found
+    assert not limit.confirmed
+    assert limit.limit_rps == 300
+    assert limit.failed_step.index == 4
+    assert limit.reasons[-1].startswith("предупреждение: ступень 2")
+
+
+def test_failed_first_step_then_normal_is_an_outlier():
+    limit = find_limit(steps((100, 100, 700), (200, 200, 20)), p99_threshold_ms=500)
+
+    assert not limit.found
+    assert limit.limit_rps == 200
+    assert limit.reasons[0].startswith("предупреждение: ступень 1")
+
+
+def test_single_failed_step_only_is_unconfirmed_below_first_step():
+    limit = find_limit(steps((100, 100, 700)), p99_threshold_ms=500)
+
+    assert limit.found
+    assert not limit.confirmed
+    assert limit.limit_rps is None
 
 
 def test_no_failure_gives_lower_bound():
@@ -114,6 +193,7 @@ def test_aborted_run_is_reported_as_incomplete(capsys):
     assert "только завершённых ступеней" in output
     assert "предел не ниже 150" in output
     assert "все ступени" not in output
+    assert "Диагноза нет: предел не найден" in output
 
 
 def test_empty_aborted_run_has_no_limit_estimate(capsys):

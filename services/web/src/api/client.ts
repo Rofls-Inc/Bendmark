@@ -1,4 +1,4 @@
-import type { Run, RunStatus, Scenario } from './types'
+import type { Run, RunList, RunStatus, Scenario } from './types'
 
 const BASE = '/api'
 
@@ -56,6 +56,23 @@ export async function getRun(id: string, signal?: AbortSignal): Promise<Run> {
   throw await toError(response)
 }
 
+// Прогоны от новых к старым: limit от 1 до 100, before - id последнего прогона прошлой страницы
+export async function listRuns(page: { limit?: number; before?: string } = {}, signal?: AbortSignal): Promise<RunList> {
+  const query = new URLSearchParams()
+  if (page.limit !== undefined)
+    query.set('limit', String(page.limit))
+  if (page.before !== undefined)
+    query.set('before', page.before)
+  const qs = query.toString()
+  const response = await request(qs ? `${BASE}/runs?${qs}` : `${BASE}/runs`, { signal })
+  if (!response.ok)
+    throw await toError(response)
+  const body = await readJson(response)
+  if (!Array.isArray(body?.runs))
+    throw new ApiError(response.status, 'Координатор вернул список прогонов в неожиданном виде')
+  return body as unknown as RunList
+}
+
 // 200 - прогон уже остановлен; 202 - остановка идёт, итог придёт в GET /runs/{id}
 export async function stopRun(id: string): Promise<{ run: Run; pending: boolean }> {
   const response = await request(`${BASE}/runs/${encodeURIComponent(id)}/stop`, { method: 'POST' })
@@ -76,6 +93,10 @@ export async function toError(response: Response): Promise<Error> {
   const errors = body?.errors
   if (response.status === 400 && isFieldErrors(errors))
     return new ValidationError(errors)
+
+  // nginx отвечает 502/503/504 своей HTML-страницей, когда координатор лежит
+  if (body === null && [502, 503, 504].includes(response.status))
+    return new ApiError(response.status, UNAVAILABLE_MESSAGE)
 
   const detail = typeof body?.detail === 'string' ? body.detail
     : typeof body?.title === 'string' ? body.title

@@ -1,0 +1,74 @@
+{
+  "scenario_name": "rejecting",
+  "status": "completed",
+  "steps": [
+    {
+      "index": 1,
+      "target_rps": 100,
+      "duration_seconds": 10,
+      "request_count": 1000,
+      "throughput_rps": 100.0,
+      "latency_ms": {
+        "p50": 10,
+        "p90": 18,
+        "p99": 20
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      },
+      "skipped_count": 0
+    },
+    {
+      "index": 2,
+      "target_rps": 200,
+      "duration_seconds": 10,
+      "request_count": 2000,
+      "throughput_rps": 200.0,
+      "latency_ms": {
+        "p50": 10,
+        "p90": 18,
+        "p99": 25
+      },
+      "errors": {
+        "count": 0,
+        "rate_percent": 0.0
+      },
+      "skipped_count": 0
+    },
+    {
+      "index": 3,
+      "target_rps": 300,
+      "duration_seconds": 10,
+      "request_count": 3000,
+      "throughput_rps": 300.0,
+      "latency_ms": {
+        "p50": 9,
+        "p90": 14,
+        "p99": 16
+      },
+      "errors": {
+        "count": 900,
+        "rate_percent": 30.0
+      },
+      "skipped_count": 0
+    },
+    {
+      "index": 4,
+      "target_rps": 400,
+      "duration_seconds": 10,
+      "request_count": 4000,
+      "throughput_rps": 400.0,
+      "latency_ms": {
+        "p50": 8,
+        "p90": 12,
+        "p99": 15
+      },
+      "errors": {
+        "count": 1800,
+        "rate_percent": 45.0
+      },
+      "skipped_count": 0
+    }
+  ]
+}

@@ -1,8 +1,8 @@
 import {
   CartesianGrid,
-  ComposedChart,
   Legend,
   Line,
+  LineChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -10,98 +10,119 @@ import {
   YAxis,
 } from 'recharts'
 import type { StepResult } from '../api/types'
-import { P99_THRESHOLD_MS, p99Axis, rpsAxis, toChartPoints } from '../run/view'
+import { axisProps, gridProps, legendProps, thresholdLabel, tooltipProps } from './chartStyle'
+import { P99_THRESHOLD_MS, p99Axis, rpsAxis, toChartPoints, type ChartPoint } from '../run/view'
 
 interface Props {
   steps: StepResult[]
   limitRps?: number | null
 }
 
-// Кривая производительности: пропускная слева, p99 справа на логарифмической оси
+// syncId связывает подсказки: наведение на ступень показывает её на обоих графиках
+const SYNC_ID = 'performance'
+const margin = { top: 16, right: 16, bottom: 0, left: 0 }
+const tooltipLabel = (value: unknown) => `Нагрузка ${value} запр/с`
+
+// Кривая производительности — два графика с общей осью нагрузки, у каждого одна ось Y.
+// Сверху пропускная против целевой (одни единицы, пока линии совпадают — сервис справляется),
+// снизу p99 на линейной оси с порогом. Подпись оси — цветом её линии.
 export function PerformanceChart({ steps, limitRps }: Props) {
   const points = toChartPoints(steps)
   const rps = rpsAxis(points)
   const p99 = p99Axis(points)
 
   return (
-    <ResponsiveContainer width="100%" height={320}>
-      <ComposedChart data={points} margin={{ top: 16, right: 8, bottom: 8, left: 0 }}>
-        <CartesianGrid stroke="var(--grid)" vertical={false} />
-        <XAxis
-          dataKey="target"
-          type="number"
-          domain={['dataMin', 'dataMax']}
-          ticks={points.map((p) => p.target)}
-          stroke="var(--muted)"
-          tickLine={false}
-        />
-        <YAxis
-          yAxisId="rps"
-          domain={rps.domain}
-          ticks={rps.ticks}
-          stroke="var(--muted)"
-          tickLine={false}
-          width={56}
-          label={{ value: 'запр/с', angle: -90, position: 'insideLeft', fill: 'var(--muted)' }}
-        />
-        <YAxis
-          yAxisId="p99"
-          orientation="right"
-          scale="log"
-          domain={p99.domain}
-          ticks={p99.ticks}
-          stroke="var(--muted)"
-          tickLine={false}
-          width={56}
-          label={{ value: 'p99, мс (лог)', angle: 90, position: 'insideRight', fill: 'var(--muted)' }}
-        />
-        <Tooltip
-          contentStyle={{ background: 'var(--panel)', border: '1px solid var(--border)' }}
-          labelFormatter={(value) => `Нагрузка ${value} запр/с`}
-        />
-        <Legend />
-        <ReferenceLine
-          yAxisId="p99"
-          y={P99_THRESHOLD_MS}
-          stroke="var(--red)"
-          strokeDasharray="4 4"
-          label={{ value: `порог ${P99_THRESHOLD_MS} мс`, fill: 'var(--red)', position: 'insideTopLeft' }}
-        />
-        {limitRps != null && (
-          <ReferenceLine
-            yAxisId="rps"
-            x={limitRps}
-            stroke="var(--fg)"
-            label={{ value: 'предел', fill: 'var(--fg)', position: 'insideBottomRight' }}
+    <div>
+      <ResponsiveContainer width="100%" height={220}>
+        <LineChart data={points} margin={margin} syncId={SYNC_ID}>
+          <CartesianGrid {...gridProps} />
+          {xAxis(points)}
+          <YAxis
+            domain={rps.domain}
+            ticks={rps.ticks}
+            {...axisProps}
+            width={56}
+            label={axisLabel('запр/с', 'var(--series-throughput)')}
           />
-        )}
-        <Line
-          yAxisId="rps"
-          dataKey="throughput"
-          name="пропускная, запр/с"
-          stroke="var(--green)"
-          strokeWidth={2}
-          isAnimationActive={false}
-        />
-        <Line
-          yAxisId="rps"
-          dataKey="target"
-          name="целевая нагрузка"
-          stroke="var(--muted)"
-          strokeDasharray="3 3"
-          dot={false}
-          isAnimationActive={false}
-        />
-        <Line
-          yAxisId="p99"
-          dataKey="p99"
-          name="p99, мс"
-          stroke="var(--pink)"
-          strokeWidth={2}
-          connectNulls={false}
-          isAnimationActive={false}
-        />
-      </ComposedChart>
-    </ResponsiveContainer>
+          <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
+          <Legend {...legendProps} />
+          {limitLine(limitRps, true)}
+          <Line
+            dataKey="target"
+            name="целевая нагрузка"
+            stroke="var(--series-target)"
+            strokeDasharray="3 3"
+            dot={false}
+            isAnimationActive={false}
+          />
+          <Line
+            dataKey="throughput"
+            name="пропускная, запр/с"
+            stroke="var(--series-throughput)"
+            strokeWidth={2}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={points} margin={margin} syncId={SYNC_ID}>
+          <CartesianGrid {...gridProps} />
+          {xAxis(points)}
+          <YAxis
+            domain={p99.domain}
+            ticks={p99.ticks}
+            {...axisProps}
+            width={56}
+            label={axisLabel('p99, мс', 'var(--series-p99)')}
+          />
+          <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
+          <Legend {...legendProps} />
+          <ReferenceLine
+            y={P99_THRESHOLD_MS}
+            stroke="var(--bad)"
+            strokeDasharray="4 4"
+            label={{ value: `порог ${P99_THRESHOLD_MS} мс`, ...thresholdLabel }}
+          />
+          {limitLine(limitRps)}
+          <Line
+            dataKey="p99"
+            name="p99, мс"
+            stroke="var(--series-p99)"
+            strokeWidth={2}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
+function xAxis(points: ChartPoint[]) {
+  return (
+    <XAxis
+      dataKey="target"
+      type="number"
+      domain={['dataMin', 'dataMax']}
+      ticks={points.map((p) => p.target)}
+      {...axisProps}
+    />
+  )
+}
+
+function axisLabel(value: string, color: string) {
+  return { value, angle: -90, position: 'insideLeft', fill: color, fontSize: 11 } as const
+}
+
+// Линия предела на обоих графиках, подпись — только на верхнем
+function limitLine(limitRps: number | null | undefined, labeled = false) {
+  if (limitRps == null)
+    return null
+  return (
+    <ReferenceLine
+      x={limitRps}
+      stroke="var(--accent)"
+      label={labeled ? { value: 'предел', fill: 'var(--accent)', fontSize: 11, position: 'insideBottomRight' } : undefined}
+    />
   )
 }

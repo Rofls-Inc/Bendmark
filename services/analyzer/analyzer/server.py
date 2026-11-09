@@ -13,6 +13,7 @@ from pathlib import Path
 
 import grpc
 
+from .diagnosis import Cause, Confidence, Diagnosis, Status, diagnose
 from .limit import LimitResult, find_limit
 from .result import Step
 
@@ -113,12 +114,44 @@ def _check_measurable(results) -> None:
 
 
 def _to_limit(limit: LimitResult):
-    fields: dict[str, object] = {"found": limit.found, "reasons": list(limit.reasons)}
+    fields: dict[str, object] = {"found": limit.found, "reasons": list(limit.reasons), "confirmed": limit.confirmed}
     if limit.limit_rps is not None:
         fields["limit_rps"] = limit.limit_rps
     if limit.failed_step is not None:
         fields["failed_step_index"] = limit.failed_step.index
     return analyzer_pb2.Limit(**fields)
+
+
+_STATUS = {
+    Status.DIAGNOSED: analyzer_pb2.DIAGNOSIS_STATUS_DIAGNOSED,
+    Status.NO_LIMIT: analyzer_pb2.DIAGNOSIS_STATUS_NO_LIMIT,
+    Status.TOO_FEW_STEPS: analyzer_pb2.DIAGNOSIS_STATUS_TOO_FEW_STEPS,
+}
+_CAUSE = {
+    Cause.REJECTING: analyzer_pb2.CAUSE_REJECTING,
+    Cause.SLOW_RESPONSES: analyzer_pb2.CAUSE_SLOW_RESPONSES,
+    Cause.SATURATION: analyzer_pb2.CAUSE_SATURATION,
+    Cause.INCONCLUSIVE: analyzer_pb2.CAUSE_INCONCLUSIVE,
+}
+_CONFIDENCE = {
+    Confidence.LOW: analyzer_pb2.CONFIDENCE_LOW,
+    Confidence.MEDIUM: analyzer_pb2.CONFIDENCE_MEDIUM,
+    Confidence.HIGH: analyzer_pb2.CONFIDENCE_HIGH,
+}
+
+
+def _to_diagnosis(diagnosis: Diagnosis):
+    message = analyzer_pb2.Diagnosis(
+        status=_STATUS[diagnosis.status],
+        explanation=diagnosis.explanation,
+        evidence=list(diagnosis.evidence),
+    )
+    # Без диагноза cause и confidence остаются UNSPECIFIED
+    if diagnosis.cause is not None:
+        message.cause = _CAUSE[diagnosis.cause]
+    if diagnosis.confidence is not None:
+        message.confidence = _CONFIDENCE[diagnosis.confidence]
+    return message
 
 
 def analyze(request) -> "analyzer_pb2.FindLimitResponse":
@@ -131,7 +164,8 @@ def analyze(request) -> "analyzer_pb2.FindLimitResponse":
         limit = find_limit(steps, **thresholds)
     except ValueError as error:
         raise _invalid(str(error)) from error
-    return analyzer_pb2.FindLimitResponse(limit=_to_limit(limit))
+    diagnosis = diagnose(steps, limit, **thresholds)
+    return analyzer_pb2.FindLimitResponse(limit=_to_limit(limit), diagnosis=_to_diagnosis(diagnosis))
 
 
 class AnalyzerService(analyzer_pb2_grpc.AnalyzerServiceServicer):
