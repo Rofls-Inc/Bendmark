@@ -40,6 +40,8 @@ public sealed record Run
     public DateTimeOffset? StartedAt { get; init; }
     public DateTimeOffset? FinishedAt { get; init; }
     public string? Error { get; init; }
+    // Сколько агентов подают нагрузку (#78); у прогонов до #78 - 1
+    public int AgentCount { get; init; } = 1;
     public required Scenario Scenario { get; init; }
     public IReadOnlyList<StepResultDto> Steps { get; init; } = [];
     // Поиск предела (#34): null, пока прогон не завершён, и у failed или без ступеней

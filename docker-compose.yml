@@ -1,8 +1,26 @@
 # Весь стенд одной командой: docker compose up --build
+# Агенты: agent, agent-2, agent-3 (gRPC, первый доступен на localhost:50051)
 # Интерфейс: http://localhost:5173, координатор: http://localhost:5080, ABStock: http://localhost:5062,
 # анализатор (gRPC): localhost:50052
 
 name: bendmark
+
+# Общие настройки агентов (#78): координатор делит нагрузку между ними поровну
+x-agent: &agent
+  build:
+    context: .
+    dockerfile: services/agent/Dockerfile
+  command: ["--listen", "0.0.0.0:50051"]
+  networks: [bendmark]
+  depends_on:
+    abstock:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/50051"]
+    interval: 5s
+    timeout: 3s
+    retries: 3
+    start_period: 10s
 
 services:
   # Тестовый сервис. Собираем из его репозитория, коммит зафиксирован,
@@ -53,26 +71,20 @@ services:
       retries: 3
       start_period: 5s
 
-  # Агент — gRPC-сервер AgentService (#45). Слушает 50051, ждёт Run от координатора.
-  # Значение по умолчанию для команды задаётся здесь, чтобы `docker compose run`
-  # мог подменить его аргументами CLI-режима (URL, --steps, ...).
+  # Агенты - gRPC-серверы AgentService (#45). Каждый слушает 50051 в своём контейнере
+  # и ждёт Run от координатора. Значение по умолчанию для команды задаётся в x-agent,
+  # чтобы `docker compose run agent` мог подменить его аргументами CLI-режима (URL, --steps, ...).
+  # Порт на хосте - только у первого агента, для отладки через grpcurl
   agent:
-    build:
-      context: .
-      dockerfile: services/agent/Dockerfile
-    command: ["--listen", "0.0.0.0:50051"]
+    <<: *agent
     ports:
       - "127.0.0.1:50051:50051"
-    networks: [bendmark]
-    depends_on:
-      abstock:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/50051"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
-      start_period: 10s
+
+  agent-2:
+    <<: *agent
+
+  agent-3:
+    <<: *agent
 
   coordinator:
     build:
@@ -81,7 +93,10 @@ services:
     ports:
       - "127.0.0.1:5080:5080"
     environment:
-      Agent__Address: http://agent:50051
+      # Три агента (#78); для одного агента достаточно Agent__Address
+      Agent__Addresses__0: http://agent:50051
+      Agent__Addresses__1: http://agent-2:50051
+      Agent__Addresses__2: http://agent-3:50051
       Analyzer__Address: http://analyzer:50052
     # Прогоны в SQLite переживают пересоздание контейнера
     volumes:
@@ -93,6 +108,10 @@ services:
       analyzer:
         condition: service_healthy
       agent:
+        condition: service_healthy
+      agent-2:
+        condition: service_healthy
+      agent-3:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/5080 && printf 'GET /health HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && head -n1 <&3 | grep -q ' 200 '"]

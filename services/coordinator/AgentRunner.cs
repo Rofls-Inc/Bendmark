@@ -20,8 +20,25 @@ public sealed class AgentOptions
 {
     public const string SectionName = "Agent";
 
-    // Адрес gRPC-сервера агента (h2c)
+    // Адрес gRPC-сервера агента (h2c), если агент один
     public string Address { get; set; } = "http://agent:50051";
+
+    // Адреса нескольких агентов (#78). Если список не пуст, Address не используется
+    public List<string> Addresses { get; set; } = [];
+
+    // Адреса, на которых идёт прогон: Addresses или один Address
+    public IReadOnlyList<string> ResolveAddresses() => Addresses.Count > 0 ? Addresses : [Address];
+
+    // Один агент, указанный дважды, получил бы два Run одного прогона и ответил бы «занят».
+    // Адреса сравниваются как URL: http://agent:50051 и http://AGENT:50051/ - один агент
+    public bool HasDuplicateAddresses()
+    {
+        var uris = Addresses
+            .Select(address => Uri.TryCreate(address, UriKind.Absolute, out var uri) ? uri : null)
+            .OfType<Uri>()
+            .ToList();
+        return uris.Distinct().Count() != uris.Count;
+    }
 
     // Таймаут одного HTTP-запроса агента. Нужен, чтобы оценить срок вызова Run:
     // последние запросы ступени могут ждать ответа до этого таймаута

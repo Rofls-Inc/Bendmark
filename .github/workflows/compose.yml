@@ -65,6 +65,15 @@ jobs:
         # Два коротких прогона: HTTP API координатора и /api веба. Общий таймаут — 45 с.
         run: python3 scripts/compose_smoke.py
 
+      - name: Run uses three agents
+        # Координатор делит нагрузку между agent, agent-2 и agent-3 (#78)
+        run: |
+          curl --fail --silent --show-error 'http://localhost:5080/runs?limit=1' > runs.json
+          id=$(jq -er '.runs[0].id' runs.json)
+          curl --fail --silent --show-error "http://localhost:5080/runs/$id" > run.json
+          jq '{status, agent_count}' run.json
+          jq -e '.status == "completed" and .agent_count == 3' run.json
+
       - name: Full POST run through coordinator and web proxy
         timeout-minutes: 1
         # Ждём результаты и анализ, чтобы следующий тест не получил занятого агента.
@@ -122,7 +131,7 @@ jobs:
           # Свой порт и БД: основной координатор и его прогоны остаются доступны.
           docker compose run --rm --no-deps -d --name "$broken_container" \
             -p 127.0.0.1:5081:5080 \
-            -e Agent__Address=http://127.0.0.1:1 \
+            -e Agent__Addresses__0=http://127.0.0.1:1 \
             -e Storage__Path=/tmp/smoke-negative.db coordinator
           # Docker может открыть порт до готовности Kestrel: возможен и сброс соединения.
           curl --fail --silent --show-error --retry 10 --retry-delay 1 \

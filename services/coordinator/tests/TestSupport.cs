@@ -25,7 +25,22 @@ public sealed class CoordinatorFactory : WebApplicationFactory<Program>
     public static CoordinatorFactory Reusing(string databasePath) =>
         new() { DatabasePath = databasePath, _ownsDatabase = false };
 
-    public FakeAgentRunner Agent { get; } = new();
+    // Сколько фейковых агентов в группе (#78); по умолчанию один, как до #78
+    public int AgentCount { get; init; } = 1;
+
+    private IReadOnlyList<FakeAgentRunner>? _agents;
+
+    public IReadOnlyList<FakeAgentRunner> Agents =>
+        _agents ??= Enumerable.Range(0, AgentCount).Select(_ => new FakeAgentRunner()).ToList();
+
+    // Первый агент группы; тестам с одним агентом - единственный
+    public FakeAgentRunner Agent => Agents[0];
+
+    // Адрес фейкового агента с номером number (с единицы): так он виден в ошибках прогона
+    public static string AgentAddress(int number) => $"http://fake-agent-{number}:50051";
+
+    // Дополнительные настройки хоста, например Agent:Addresses:0
+    public Dictionary<string, string> Settings { get; init; } = [];
 
     public FakeAnalyzer Analyzer { get; } = new();
 
@@ -42,9 +57,12 @@ public sealed class CoordinatorFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseSetting("Storage:Path", DatabasePath);
+        foreach (var (key, value) in Settings)
+            builder.UseSetting(key, value);
         builder.ConfigureTestServices(services =>
         {
-            services.AddSingleton<IAgentRunner>(Agent);
+            services.AddSingleton(new AgentGroup(
+                Agents.Select((agent, i) => new AgentEndpoint(i + 1, AgentAddress(i + 1), agent))));
             services.AddSingleton<IAnalyzer>(Analyzer);
             services.AddSingleton<TimeProvider>(Clock);
             // PostConfigure - после привязки appsettings.json, поэтому значения теста побеждают
@@ -115,12 +133,16 @@ public sealed class FakeAgentRunner : IAgentRunner
     private readonly Channel<object> _events = Channel.CreateUnbounded<object>();
     private readonly Channel<Guid> _started = Channel.CreateUnbounded<Guid>();
     private readonly ConcurrentQueue<Guid> _runCalls = new();
+    private readonly ConcurrentQueue<Scenario> _scenarios = new();
     private readonly ConcurrentQueue<Guid> _stopCalls = new();
 
     // id прогонов из всех вызовов Run, по порядку, повтор вызова даёт ещё одну запись
     public IReadOnlyCollection<Guid> RunCalls => _runCalls;
 
     public IReadOnlyCollection<Guid> StopCalls => _stopCalls;
+
+    // Сценарии из всех вызовов Run, по порядку: по ним видна доля нагрузки агента
+    public IReadOnlyCollection<Scenario> Scenarios => _scenarios;
 
     // false - агент занят чужим прогоном: Stop отвечает was_running=false и не трогает
     // поток Run, тот завершается тем, что отправит тест
@@ -143,6 +165,7 @@ public sealed class FakeAgentRunner : IAgentRunner
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         _runCalls.Enqueue(runId);
+        _scenarios.Enqueue(scenario);
         _started.Writer.TryWrite(runId);
         while (true)
         {

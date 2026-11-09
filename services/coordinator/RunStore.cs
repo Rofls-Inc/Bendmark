@@ -77,7 +77,8 @@ public sealed class RunStore
                 error TEXT,
                 scenario_name TEXT,
                 scenario TEXT NOT NULL,
-                analysis TEXT
+                analysis TEXT,
+                agent_count INTEGER NOT NULL DEFAULT 1
             );
             CREATE TABLE IF NOT EXISTS steps (
                 run_id TEXT NOT NULL REFERENCES runs (id),
@@ -86,24 +87,27 @@ public sealed class RunStore
                 PRIMARY KEY (run_id, position)
             );
             """);
+        AddAgentCount(connection);
         RecoverAfterRestart(connection);
     }
 
-    public Run Create(Scenario scenario)
+    public Run Create(Scenario scenario, int agentCount = 1)
     {
-        var run = new Run { Id = Guid.NewGuid(), Scenario = scenario };
+        ArgumentOutOfRangeException.ThrowIfLessThan(agentCount, 1);
+        var run = new Run { Id = Guid.NewGuid(), Scenario = scenario, AgentCount = agentCount };
         lock (_gate)
         {
             using var connection = Open();
             Execute(connection, """
-                INSERT INTO runs (id, status, created_at, scenario_name, scenario)
-                VALUES ($id, $status, $created_at, $scenario_name, $scenario)
+                INSERT INTO runs (id, status, created_at, scenario_name, scenario, agent_count)
+                VALUES ($id, $status, $created_at, $scenario_name, $scenario, $agent_count)
                 """,
                 ("$id", run.Id.ToString()),
                 ("$status", Name(run.Status)),
                 ("$created_at", Time(run.CreatedAt)),
                 ("$scenario_name", scenario.Name),
-                ("$scenario", JsonSerializer.Serialize(scenario, Json)));
+                ("$scenario", JsonSerializer.Serialize(scenario, Json)),
+                ("$agent_count", agentCount));
         }
         return run;
     }
@@ -276,6 +280,13 @@ public sealed class RunStore
             return _stopRequested.Contains(id);
     }
 
+    // База до #78 без agent_count: столбец добавляется, старые прогоны шли на одном агенте
+    private static void AddAgentCount(SqliteConnection connection)
+    {
+        if (Scalar<long>(connection, "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'agent_count'") == 0)
+            Execute(connection, "ALTER TABLE runs ADD COLUMN agent_count INTEGER NOT NULL DEFAULT 1");
+    }
+
     // Прогоны прошлого запуска, которые уже никто не доведёт до конца:
     // created и running становятся aborted, недождавшийся анализ - ошибкой анализа
     private static void RecoverAfterRestart(SqliteConnection connection)
@@ -330,7 +341,7 @@ public sealed class RunStore
     {
         Run run;
         using (var command = Command(connection, """
-            SELECT status, created_at, started_at, finished_at, error, scenario, analysis
+            SELECT status, created_at, started_at, finished_at, error, scenario, analysis, agent_count
             FROM runs WHERE id = $id
             """, ("$id", id.ToString())))
         using (var reader = command.ExecuteReader())
@@ -348,6 +359,7 @@ public sealed class RunStore
                 Error = reader.IsDBNull(4) ? null : reader.GetString(4),
                 Scenario = Deserialize<Scenario>(reader, 5)!,
                 Analysis = Deserialize<Analysis>(reader, 6),
+                AgentCount = reader.GetInt32(7),
             };
         }
 
