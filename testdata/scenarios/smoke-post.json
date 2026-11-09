@@ -1,0 +1,21 @@
+{
+  "name": "abstock-compose-post-smoke",
+  "target": {
+    "url": "http://abstock:8080/_blazor/negotiate?negotiateVersion=1",
+    "method": "POST",
+    "headers": {
+      "Accept": "application/json",
+      "X-Requested-With": "XMLHttpRequest"
+    }
+  },
+  "steps": [
+    {
+      "target_rps": 5,
+      "duration_seconds": 2
+    },
+    {
+      "target_rps": 10,
+      "duration_seconds": 2
+    }
+  ]
+}

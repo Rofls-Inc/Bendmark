@@ -25,5 +25,29 @@ jobs:
         with:
           go-version-file: services/injector/go.mod
           cache: false
-      - run: go test ./...
+      - run: go test -race -timeout 60s ./...
       - run: go vet ./...
+      - name: Build image
+        run: docker build --tag bendmark-injector:ci .
+      - name: Healthcheck works with dropped connections
+        timeout-minutes: 1
+        run: |
+          cleanup() {
+            docker logs injector-health-ci || true
+            docker rm -f injector-health-ci >/dev/null || true
+          }
+          trap cleanup EXIT
+          docker run --rm -d --name injector-health-ci bendmark-injector:ci \
+            -listen=0.0.0.0:8081 -upstream=127.0.0.1:8082 -drop-rate=1 \
+            -health-listen=127.0.0.1:8082
+          for attempt in $(seq 1 10); do
+            if docker exec injector-health-ci /injector -healthcheck http://127.0.0.1:8082/health; then
+              if docker exec injector-health-ci /injector -healthcheck http://127.0.0.1:8081/health; then
+                echo '::error::drop-rate=1 allowed a proxy connection'
+                exit 1
+              fi
+              exit 0
+            fi
+            sleep 1
+          done
+          exit 1

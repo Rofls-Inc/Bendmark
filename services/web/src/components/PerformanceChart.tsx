@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts'
 import type { StepResult } from '../api/types'
+import { anyAbove, overflowDot, overflowNote, shownFormatter, withShown } from './axisOverflow'
 import { axisProps, gridProps, legendProps, thresholdLabel, tooltipProps } from './chartStyle'
 import { P99_THRESHOLD_MS, p99Axis, rpsAxis, toChartPoints, type ChartPoint } from '../run/view'
 
@@ -30,70 +31,80 @@ export function PerformanceChart({ steps, limitRps }: Props) {
   const points = toChartPoints(steps)
   const rps = rpsAxis(points)
   const p99 = p99Axis(points)
+  const latency = withShown(points, ['p99'], p99)
+  const above = anyAbove(points, ['p99'], p99)
 
   return (
     <div>
-      <ResponsiveContainer width="100%" height={220}>
-        <LineChart data={points} margin={margin} syncId={SYNC_ID}>
-          <CartesianGrid {...gridProps} />
-          {xAxis(points)}
-          <YAxis
-            domain={rps.domain}
-            ticks={rps.ticks}
-            {...axisProps}
-            width={56}
-            label={axisLabel('запр/с', 'var(--series-throughput)')}
-          />
-          <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
-          <Legend {...legendProps} />
-          {limitLine(limitRps, true)}
-          <Line
-            dataKey="target"
-            name="целевая нагрузка"
-            stroke="var(--series-target)"
-            strokeDasharray="3 3"
-            dot={false}
-            isAnimationActive={false}
-          />
-          <Line
-            dataKey="throughput"
-            name="пропускная, запр/с"
-            stroke="var(--series-throughput)"
-            strokeWidth={2}
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-      <ResponsiveContainer width="100%" height={200}>
-        <LineChart data={points} margin={margin} syncId={SYNC_ID}>
-          <CartesianGrid {...gridProps} />
-          {xAxis(points)}
-          <YAxis
-            domain={p99.domain}
-            ticks={p99.ticks}
-            {...axisProps}
-            width={56}
-            label={axisLabel('p99, мс', 'var(--series-p99)')}
-          />
-          <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
-          <Legend {...legendProps} />
-          <ReferenceLine
-            y={P99_THRESHOLD_MS}
-            stroke="var(--bad)"
-            strokeDasharray="4 4"
-            label={{ value: `порог ${P99_THRESHOLD_MS} мс`, ...thresholdLabel }}
-          />
-          {limitLine(limitRps)}
-          <Line
-            dataKey="p99"
-            name="p99, мс"
-            stroke="var(--series-p99)"
-            strokeWidth={2}
-            connectNulls={false}
-            isAnimationActive={false}
-          />
-        </LineChart>
-      </ResponsiveContainer>
+      <section className="performance-plot">
+        <h3>Пропускная способность</h3>
+        <ResponsiveContainer width="100%" height={220}>
+          <LineChart data={points} margin={margin} syncId={SYNC_ID}>
+            <CartesianGrid {...gridProps} />
+            {xAxis(points)}
+            <YAxis
+              domain={rps.domain}
+              ticks={rps.ticks}
+              {...axisProps}
+              width={56}
+              label={axisLabel('запр/с', 'var(--series-throughput)')}
+            />
+            <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} />
+            <Legend {...legendProps} />
+            {limitLine(limitRps, true)}
+            <Line
+              dataKey="target"
+              name="целевая нагрузка"
+              stroke="var(--series-target)"
+              strokeDasharray="3 3"
+              dot={false}
+              isAnimationActive={false}
+            />
+            <Line
+              dataKey="throughput"
+              name="пропускная, запр/с"
+              stroke="var(--series-throughput)"
+              strokeWidth={2}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </section>
+      <section className="performance-plot">
+        <h3>Задержка p99</h3>
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={latency} margin={margin} syncId={SYNC_ID}>
+            <CartesianGrid {...gridProps} />
+            {xAxis(points)}
+            <YAxis
+              domain={p99.domain}
+              ticks={p99.ticks}
+              {...axisProps}
+              width={56}
+              label={axisLabel('p99, мс', 'var(--series-p99)')}
+            />
+            <Tooltip {...tooltipProps} labelFormatter={tooltipLabel} formatter={shownFormatter(p99)} />
+            <Legend {...legendProps} />
+            <ReferenceLine
+              y={P99_THRESHOLD_MS}
+              stroke="var(--bad)"
+              strokeDasharray="4 4"
+              label={{ value: `порог ${P99_THRESHOLD_MS} мс`, ...thresholdLabel }}
+            />
+            {limitLine(limitRps)}
+            <Line
+              dataKey="p99Shown"
+              name="p99, мс"
+              stroke="var(--series-p99)"
+              strokeWidth={2}
+              dot={overflowDot('p99', p99, 'var(--series-p99)')}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+        {above && <p className="hint">{overflowNote(p99)}</p>}
+      </section>
     </div>
   )
 }

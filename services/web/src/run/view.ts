@@ -40,8 +40,23 @@ export function latencyAxis(points: LatencyPoint[], threshold = P99_THRESHOLD_MS
   return latencyMax(points.flatMap((p) => [p.p50, p.p90, p.p99]), threshold)
 }
 
+// Перед округлением ограничиваем максимум четырьмя порогами. Тогда верх оси не
+// уменьшается при росте задержки. Всё выше округлённого верха рисуется у края.
+const LATENCY_CAP_FACTOR = 4
+
 function latencyMax(raw: (number | null)[], threshold: number): Axis {
-  return linearAxis(Math.max(threshold, ...raw.filter((v): v is number => v !== null)))
+  const max = Math.max(threshold, ...raw.filter((v): v is number => v !== null))
+  return linearAxis(Math.min(max, threshold * LATENCY_CAP_FACTOR))
+}
+
+// Значение в пределах оси: выше верхнего края — на краю. null остаётся null
+export function clampToAxis(value: number | null, axis: Axis): number | null {
+  return value === null ? null : Math.min(value, axis.domain[1])
+}
+
+// Значение вышло за ось и нарисовано у края
+export function isAboveAxis(value: number | null, axis: Axis): boolean {
+  return value !== null && value > axis.domain[1]
 }
 
 function linearAxis(max: number): Axis {
@@ -71,17 +86,18 @@ export function hasVerdicts(analysis: Analysis | null): analysis is Analysis {
 }
 
 // Как подписать ступень в отчёте: «норма», «предел» (последняя без отказа), «отказ»,
-// после отказа, «не анализ.» — ступени, которые не ушли анализатору (после пропусков или остановки)
+// после отказа, «не анализ.» — с первой ступени с пропусками
 export function stepVerdict(step: StepResult, analysis: Analysis | null): StepVerdict | null {
   if (!hasVerdicts(analysis))
     return null
   const failed = analysis.failed_step_index
+  // Ступени за границей анализа могли идти после отказа, но их нужно явно отметить.
+  if (step.index > analysis.analyzed_steps)
+    return 'not-analyzed'
   if (failed !== null && step.index > failed)
     return 'after'
   if (failed !== null && step.index === failed)
     return 'failed'
-  if (step.index > analysis.analyzed_steps)
-    return 'not-analyzed'
   if (analysis.status === 'found' && failed !== null && step.index === failed - 1)
     return 'limit'
   return 'ok'
@@ -108,8 +124,9 @@ export function headline(run: Run): Headline {
     case 'pending':
       return { value: null, kind: 'pending', caption: analysis.message }
     case 'found':
+      // Отказ на первой ступени: предел известен сверху — он ниже её нагрузки
       return analysis.limit_rps === null
-        ? { value: null, kind: 'below-first', caption: analysis.message }
+        ? { value: failedTarget(run, analysis.failed_step_index), kind: 'below-first', caption: analysis.message }
         : { value: analysis.limit_rps, kind: 'limit', caption: analysis.message }
     case 'not_found':
       return { value: analysis.limit_rps, kind: 'lower-bound', caption: analysis.message }
@@ -117,6 +134,10 @@ export function headline(run: Run): Headline {
     case 'error':
       return { value: null, kind: 'none', caption: analysis.message }
   }
+}
+
+function failedTarget(run: Run, index: number | null): number | null {
+  return run.steps.find((s) => s.index === index)?.target_rps ?? null
 }
 
 // Номер ступени, которая идёт сейчас: следующая после последней пришедшей

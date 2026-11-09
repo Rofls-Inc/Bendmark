@@ -1,0 +1,17 @@
+{
+  "name": "abstock-compose-smoke",
+  "target": {
+    "url": "http://abstock:8080/",
+    "method": "GET"
+  },
+  "steps": [
+    {
+      "target_rps": 5,
+      "duration_seconds": 2
+    },
+    {
+      "target_rps": 10,
+      "duration_seconds": 2
+    }
+  ]
+}

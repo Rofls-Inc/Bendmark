@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -223,7 +223,13 @@ describe('RunPage', () => {
 
     const card = await screen.findByRole('region', { name: 'Предел' })
     expect(card.textContent).toContain('350')
-    expect(card.textContent).toContain('Отказ на нагрузке')
+    expect(within(card).getByRole('heading', { name: 'Отказ на ступени 7' })).toBeTruthy()
+    expect(card.textContent).toContain('400 запр/с')
+    expect(card.textContent).toContain('812 мс')
+    expect(card.textContent).toContain('2,4 %')
+    expect(card.textContent).toContain('Предел не подтверждён')
+    expect(screen.getByRole('heading', { name: 'Пропускная способность' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Задержка p99' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Диагноз' })).toBeTruthy()
     expect(screen.getByText('Анализатор не поставил диагноз для этого прогона.')).toBeTruthy()
   })
