@@ -1,0 +1,22 @@
+# POST-сценарий для ABStock. У ABStock нет REST API: страницы Blazor работают
+# через SignalR, а формы защищены antiforgery-токеном. Единственный POST без
+# токена - согласование SignalR-соединения (negotiate): каждый запрос создаёт
+# на сервере запись о новом соединении и возвращает JSON с её id.
+# Нагрузка поэтому скромная: соединения, которые так и не открылись, сервер
+# держит до очистки по таймауту.
+name: abstock-negotiate-post
+target:
+  url: http://abstock:8080/_blazor/negotiate?negotiateVersion=1
+  method: POST
+  headers:
+    Accept: application/json
+    X-Requested-With: XMLHttpRequest
+steps:
+  - target_rps: 20
+    duration_seconds: 15
+  - target_rps: 40
+    duration_seconds: 15
+  - target_rps: 60
+    duration_seconds: 15
+  - target_rps: 80
+    duration_seconds: 15

@@ -13,6 +13,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -27,6 +28,9 @@ void print_usage(const char* prog) {
         << "  --listen ADDR          gRPC listen address (default 0.0.0.0:50051)\n"
         << "  --steps LIST           scenario steps, e.g. 100:45,200:45.5\n"
         << "  --name NAME            scenario name for CLI JSON (default cli)\n"
+        << "  --method METHOD        GET, POST, PUT, PATCH or DELETE (CLI only; default GET)\n"
+        << "  --header 'NAME: VALUE' request header, repeatable (CLI only)\n"
+        << "  --body TEXT            request body (CLI only; not with GET/DELETE)\n"
         << "  --timeout MS           per-request timeout in ms (default 5000)\n"
         << "  --max-concurrency N    cap for auto-computed worker count (default 1000)\n"
         << "  --concurrency N        override worker count (default: auto)\n"
@@ -47,6 +51,17 @@ double parse_positive(const std::string& s, const std::string& ctx) {
         throw std::runtime_error("expected number > 0 in " + ctx + ": " + s);
     }
     return v;
+}
+
+// "Name: value" -> {"Name", "value"}; пробелы после двоеточия не входят в значение
+std::pair<std::string, std::string> parse_header(const std::string& s) {
+    auto colon = s.find(':');
+    if (colon == std::string::npos) {
+        throw std::runtime_error("bad header (expected 'NAME: VALUE'): " + s);
+    }
+    auto value_start = s.find_first_not_of(" \t", colon + 1);
+    std::string value = value_start == std::string::npos ? "" : s.substr(value_start);
+    return {s.substr(0, colon), value};
 }
 
 std::vector<StepConfig> parse_steps(const std::string& s) {
@@ -79,7 +94,8 @@ std::vector<StepConfig> parse_steps(const std::string& s) {
 }
 
 int run_cli(int argc, char** argv) {
-    std::string url = argv[1];
+    HttpRequest request;
+    request.url = argv[1];
     std::string steps_arg;
     std::string name = "cli";
     long timeout_ms = 5000;
@@ -108,6 +124,12 @@ int run_cli(int argc, char** argv) {
                 steps_arg = argv[++i];
             } else if (a == "--name" && i + 1 < argc) {
                 name = argv[++i];
+            } else if (a == "--method" && i + 1 < argc) {
+                request.method = argv[++i];
+            } else if (a == "--header" && i + 1 < argc) {
+                request.headers.push_back(parse_header(argv[++i]));
+            } else if (a == "--body" && i + 1 < argc) {
+                request.body = argv[++i];
             } else if (a == "--timeout" && i + 1 < argc) {
                 timeout_ms = std::stol(argv[++i]);
             } else if (a == "--max-concurrency" && i + 1 < argc) {
@@ -127,8 +149,13 @@ int run_cli(int argc, char** argv) {
         return 1;
     }
 
+    if (auto error = validate_request(request); !error.empty()) {
+        std::cerr << "Invalid request: " << error << "\n";
+        return 1;
+    }
+
     ScenarioConfig sc;
-    sc.url = url;
+    sc.request = std::move(request);
     sc.timeout_ms = timeout_ms;
     sc.max_concurrency = max_concurrency;
     sc.concurrency_override = concurrency_override;

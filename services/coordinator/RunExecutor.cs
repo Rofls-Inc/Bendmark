@@ -221,7 +221,7 @@ public sealed class RunExecutor(
                 {
                     first = failure is null;
                     if (first)
-                        failure = new AgentFailure(agent, e, BeforeLoad: expectedIndex == 1 && storedCount == 0);
+                        failure = new AgentFailure(agent, e, BeforeLoad: expectedIndex == 1);
                 }
 
                 // Вне замка: отмена может сразу выполнить продолжения других агентов
@@ -231,7 +231,12 @@ public sealed class RunExecutor(
         }
 
         await Task.WhenAll(Enumerable.Range(0, agents.Count).Select(PumpAsync));
-        return failure;
+        // При отмене другой поток ещё может вернуть уже готовую ступень. Решаем,
+        // можно ли повторить группу, только когда все потоки закончились.
+        return failure is null ? null : failure with
+        {
+            BeforeLoad = failure.BeforeLoad && received.All(steps => steps.Count == 0),
+        };
     }
 
     // Ступени отдельных агентов в базе не хранятся; лог показывает, какой агент выбивается

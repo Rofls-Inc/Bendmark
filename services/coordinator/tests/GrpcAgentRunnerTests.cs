@@ -70,6 +70,57 @@ public class GrpcAgentRunnerTests
     }
 
     [Fact]
+    public async Task Sends_method_headers_and_body()
+    {
+        var agent = new ScriptedAgent
+        {
+            Script = async (request, stream, _) =>
+                await stream.WriteAsync(Response(request, ProtoStep(1, 100, 45, requests: 4500, errors: 0))),
+        };
+        await using var host = await AgentHost.StartAsync(agent);
+        var runner = host.CreateRunner();
+        var scenario = TwoSteps with
+        {
+            Target = new Target
+            {
+                Url = "http://abstock:8080/orders",
+                Method = "POST",
+                Headers = new() { ["Content-Type"] = "application/json", ["X-Empty"] = "" },
+                Body = "{\"qty\": 5}",
+            },
+            Steps = [new Step { TargetRps = 100, DurationSeconds = 45 }],
+        };
+
+        await foreach (var _ in runner.RunAsync(Guid.NewGuid(), scenario, CancellationToken.None)) { }
+
+        var target = agent.Received!.Scenario.Target;
+        Assert.Equal("POST", target.Method);
+        Assert.Equal("{\"qty\": 5}", target.Body);
+        Assert.Equal(2, target.Headers.Count);
+        Assert.Equal("application/json", target.Headers["Content-Type"]);
+        Assert.Equal("", target.Headers["X-Empty"]);
+    }
+
+    [Fact]
+    public async Task Get_without_headers_sends_empty_map_and_body()
+    {
+        var agent = new ScriptedAgent
+        {
+            Script = async (request, stream, _) =>
+            {
+                for (uint i = 1; i <= 2; i++)
+                    await stream.WriteAsync(Response(request, ProtoStep(i, 100 + 50 * (i - 1), 45, requests: 4500, errors: 0)));
+            },
+        };
+        await using var host = await AgentHost.StartAsync(agent);
+        await foreach (var _ in host.CreateRunner().RunAsync(Guid.NewGuid(), TwoSteps, CancellationToken.None)) { }
+
+        var target = agent.Received!.Scenario.Target;
+        Assert.Empty(target.Headers);
+        Assert.Equal("", target.Body);
+    }
+
+    [Fact]
     public async Task Stop_ends_run_stream_with_cancelled()
     {
         var agent = new ScriptedAgent();

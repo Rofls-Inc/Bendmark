@@ -1,5 +1,6 @@
 #include "agent_service.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -21,8 +22,17 @@ bool is_uuid(const std::string& s) {
     return true;
 }
 
-bool is_http_url(const std::string& s) {
-    return s.rfind("http://", 0) == 0 || s.rfind("https://", 0) == 0;
+HttpRequest to_request(const bendmark::v1::Target& target) {
+    HttpRequest request;
+    request.url = target.url();
+    request.method = target.method();
+    request.body = target.body();
+    for (const auto& [name, value] : target.headers()) {
+        request.headers.emplace_back(name, value);
+    }
+    // Порядок map в protobuf не определён; сортируем, чтобы запрос был одинаковым от прогона к прогону
+    std::sort(request.headers.begin(), request.headers.end());
+    return request;
 }
 
 } // namespace
@@ -104,14 +114,12 @@ grpc::Status AgentServiceImpl::Run(grpc::ServerContext* ctx,
     if (sc.name().empty()) {
         return {grpc::StatusCode::INVALID_ARGUMENT, "scenario name is empty"};
     }
-    if (!is_http_url(sc.target().url())) {
-        return {grpc::StatusCode::INVALID_ARGUMENT, "target.url must be http/https"};
+    HttpRequest request = to_request(sc.target());
+    if (auto error = validate_request(request); !error.empty()) {
+        return {grpc::StatusCode::INVALID_ARGUMENT, error};
     }
     if (sc.steps_size() == 0) {
         return {grpc::StatusCode::INVALID_ARGUMENT, "steps must not be empty"};
-    }
-    if (sc.target().method() != "GET") {
-        return {grpc::StatusCode::INVALID_ARGUMENT, "only GET is supported"};
     }
     for (const auto& s : sc.steps()) {
         if (!std::isfinite(s.target_rps()) || s.target_rps() <= 0) {
@@ -123,7 +131,7 @@ grpc::Status AgentServiceImpl::Run(grpc::ServerContext* ctx,
     }
 
     ScenarioConfig config;
-    config.url = sc.target().url();
+    config.request = std::move(request);
     for (const auto& s : sc.steps()) {
         config.steps.push_back({s.target_rps(), s.duration_seconds()});
     }

@@ -1,0 +1,17 @@
+# Тот же сценарий, что post-json.json. Тело - многострочный текст YAML (|-),
+# без завершающего перевода строки, поэтому оно совпадает со строкой из JSON
+name: orders-post
+target:
+  url: http://abstock:8080/api/orders
+  method: POST
+  headers:
+    Content-Type: application/json
+    Authorization: Bearer test-token
+    X-Request-Source: bendmark
+  body: |-
+    {"ticker": "ABS", "side": "buy", "quantity": 5, "note": "тест"}
+steps:
+  - target_rps: 10
+    duration_seconds: 5
+  - target_rps: 20
+    duration_seconds: 5

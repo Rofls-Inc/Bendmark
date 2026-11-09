@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MAX_STEPS, buildSteps, defaultForm, formFromScenario, formWarnings, mapServerErrors, toScenario, totalSeconds } from './form'
+import { MAX_BODY_BYTES, MAX_HEADERS, MAX_STEPS, buildRequest, buildSteps, defaultForm, formFromScenario, formWarnings, mapServerErrors, toScenario, totalSeconds } from './form'
 
 describe('buildSteps', () => {
   it('собирает ступени как в examples/scenario.yaml', () => {
@@ -156,5 +156,94 @@ describe('formWarnings', () => {
   it('короткая ступень и долгий прогон', () => {
     expect(formWarnings({ ...defaultForm, durationSeconds: '5' }, steps(7, 5)).durationSeconds).toMatch(/шумными/)
     expect(formWarnings(defaultForm, steps(50, 45)).durationSeconds).toBe('Прогон дольше 30 минут')
+  })
+})
+
+describe('buildRequest', () => {
+  const post = { ...defaultForm, method: 'POST' }
+
+  it('по умолчанию без заголовков и тела', () => {
+    expect(buildRequest(defaultForm)).toEqual({ ok: true, headers: {}, body: '' })
+  })
+
+  it('разбирает заголовки по строкам, пустые строки пропускает', () => {
+    const result = buildRequest({ ...post, headers: '  Content-Type:application/json \r\n\nX-Empty:\nAuthorization: Bearer a:b', body: '{}' })
+    expect(result).toEqual({
+      ok: true,
+      headers: { 'Content-Type': 'application/json', 'X-Empty': '', 'Authorization': 'Bearer a:b' },
+      body: '{}',
+    })
+  })
+
+  it.each([
+    ['без двоеточия', 'Accept', /Строка 1: нужен формат/],
+    ['пробел в имени', 'Bad Name: x', /Строка 1: имя заголовка/],
+    ['кириллица в имени', 'Заголовок: x', /имя заголовка/],
+    ['Content-Length', 'content-length: 5', /агент выставляет сам/],
+    ['Transfer-Encoding', 'Transfer-Encoding: chunked', /агент выставляет сам/],
+    ['повтор без учёта регистра', 'Accept: a\naccept: b', /Строка 2: accept уже есть/],
+  ])('ошибка заголовков: %s', (_, headers, message) => {
+    const result = buildRequest({ ...defaultForm, headers })
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.errors.headers).toMatch(message)
+  })
+
+  it('не больше 32 заголовков', () => {
+    const headers = Array.from({ length: MAX_HEADERS + 1 }, (_, i) => `X-H${i}: v`).join('\n')
+    expect(buildRequest({ ...defaultForm, headers }).ok).toBe(false)
+  })
+
+  it('тело требует Content-Type', () => {
+    const result = buildRequest({ ...post, body: 'a=1' })
+    expect(!result.ok && result.errors.headers).toMatch(/Content-Type/)
+  })
+
+  it('тело ограничено 64 КиБ в UTF-8', () => {
+    const headers = 'Content-Type: text/plain'
+    expect(buildRequest({ ...post, headers, body: 'x'.repeat(MAX_BODY_BYTES) }).ok).toBe(true)
+    const result = buildRequest({ ...post, headers, body: 'я'.repeat(MAX_BODY_BYTES / 2 + 1) })
+    expect(!result.ok && result.errors.body).toMatch(/64 КиБ/)
+  })
+
+  it('у GET и DELETE тело не учитывается', () => {
+    for (const method of ['GET', 'DELETE'])
+      expect(buildRequest({ ...defaultForm, method, body: 'забытое тело' })).toEqual({ ok: true, headers: {}, body: '' })
+  })
+})
+
+describe('метод, заголовки и тело в сценарии', () => {
+  const form = { ...defaultForm, method: 'PATCH', headers: 'Content-Type: application/json', body: '{"a": 1}' }
+
+  it('toScenario добавляет заголовки и тело, только если они есть', () => {
+    expect(toScenario(form, []).target).toEqual({
+      url: 'http://abstock:8080/',
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"a": 1}',
+    })
+    expect(toScenario({ ...form, method: 'DELETE' }, []).target)
+      .toEqual({ url: 'http://abstock:8080/', method: 'DELETE', headers: { 'Content-Type': 'application/json' } })
+  })
+
+  it('formFromScenario восстанавливает их обратно', () => {
+    const built = buildSteps(form)
+    const scenario = toScenario(form, built.ok ? built.steps : [])
+    expect(formFromScenario(scenario)).toEqual({ form, exact: true })
+  })
+
+  it('старый прогон без полей - пустые заголовки и тело', () => {
+    const { form: restored } = formFromScenario({
+      name: 'old', target: { url: 'http://abstock:8080/', method: 'GET', headers: null, body: null }, steps: [],
+    })
+    expect(restored).toMatchObject({ headers: '', body: '' })
+  })
+
+  it('ошибки координатора по заголовкам и телу - у своих полей', () => {
+    expect(mapServerErrors({
+      'target.headers.Bad Header': ['Имя заголовка - латиница'],
+      'target.body': ['У GET не бывает тела'],
+    })).toEqual({ headers: 'Bad Header: Имя заголовка - латиница', body: 'У GET не бывает тела' })
+    expect(mapServerErrors({ 'target.headers': ['Для тела нужен заголовок Content-Type'] }))
+      .toEqual({ headers: 'Для тела нужен заголовок Content-Type' })
   })
 })

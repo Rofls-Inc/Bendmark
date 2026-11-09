@@ -65,6 +65,7 @@ target_link_libraries(agent_proto PUBLIC gRPC::grpc++ protobuf::libprotobuf)
 
 add_library(load_agent_core
     src/load_agent.cpp
+    src/request.cpp
     src/sender_http.cpp
 )
 target_include_directories(load_agent_core PUBLIC include)

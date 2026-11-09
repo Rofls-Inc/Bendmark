@@ -4,6 +4,10 @@ public record Target
 {
     public string? Url { get; init; }
     public string? Method { get; init; }
+    // Заголовки запроса как есть: имена без учёта регистра уникальны, см. ScenarioValidator
+    public Dictionary<string, string?>? Headers { get; init; }
+    // Тело запроса; null и пустая строка - без тела
+    public string? Body { get; init; }
 }
 
 public record Step

@@ -2,7 +2,11 @@
 
 export interface Target {
   url: string
+  // GET, POST, PUT, PATCH или DELETE
   method: string
+  // Заголовки и тело каждого запроса; у старых прогонов и GET-сценариев их нет (null)
+  headers?: Record<string, string> | null
+  body?: string | null
 }
 
 export interface Step {
@@ -41,6 +45,8 @@ export interface Analysis {
   // found: последняя ступень без отказа (null, если отказ на первой); not_found: нижняя оценка
   limit_rps: number | null
   failed_step_index: number | null
+  // Может отсутствовать у прогонов, записанных до появления подтверждения.
+  limit_confirmed?: boolean | null
   reasons: string[]
   // Сколько первых ступеней ушло анализатору
   analyzed_steps: number

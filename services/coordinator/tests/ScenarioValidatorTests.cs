@@ -76,13 +76,151 @@ public class ScenarioValidatorTests
     [InlineData(null)]
     [InlineData("")]
     [InlineData("get")]
-    [InlineData("Get")]
-    [InlineData("POST")]
+    [InlineData("Post")]
     [InlineData(" GET")]
-    public void Method_must_be_exactly_GET(string? method)
+    [InlineData("HEAD")]
+    [InlineData("OPTIONS")]
+    [InlineData("FETCH")]
+    public void Method_must_be_a_supported_uppercase_method(string? method)
     {
         var scenario = Valid() with { Target = new Target { Url = "http://abstock:8080/", Method = method } };
         Assert.Equal(new[] { "target.method" }, Validate(scenario).Keys);
+    }
+
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("POST")]
+    [InlineData("PUT")]
+    [InlineData("PATCH")]
+    [InlineData("DELETE")]
+    public void Supported_methods_without_body_are_accepted(string method)
+    {
+        var scenario = Valid() with { Target = new Target { Url = "http://abstock:8080/", Method = method } };
+        Assert.Empty(Validate(scenario));
+    }
+
+    private static Scenario WithTarget(string method, Dictionary<string, string?>? headers = null, string? body = null) =>
+        Valid() with { Target = new Target { Url = "http://abstock:8080/orders", Method = method, Headers = headers, Body = body } };
+
+    private static Dictionary<string, string?> Json => new() { ["Content-Type"] = "application/json" };
+
+    [Theory]
+    [InlineData("POST")]
+    [InlineData("PUT")]
+    [InlineData("PATCH")]
+    public void Body_with_headers_is_accepted(string method)
+    {
+        var headers = new Dictionary<string, string?>
+        {
+            ["content-type"] = "application/json; charset=utf-8",
+            ["Authorization"] = "Bearer abc.def",
+            ["X-Trace"] = "a\tb ;=,\"q\"",
+            ["X-Empty"] = "",
+        };
+        Assert.Empty(Validate(WithTarget(method, headers, "{\"qty\": 5, \"note\": \"привет\"}")));
+    }
+
+    [Fact]
+    public void Empty_body_is_no_body()
+    {
+        Assert.Empty(Validate(WithTarget("GET", body: "")));
+        Assert.Empty(Validate(WithTarget("POST", body: "")));
+        Assert.Empty(Validate(WithTarget("DELETE", Json)));
+    }
+
+    [Theory]
+    [InlineData("GET")]
+    [InlineData("DELETE")]
+    public void Body_is_not_allowed_with_get_and_delete(string method)
+    {
+        var errors = Validate(WithTarget(method, Json, "{}"));
+        Assert.Equal(new[] { "target.body" }, errors.Keys);
+        Assert.Contains(method, Assert.Single(errors["target.body"]));
+
+        // Без Content-Type ошибка та же одна: требовать заголовок для лишнего тела бессмысленно
+        Assert.Equal(new[] { "target.body" }, Validate(WithTarget(method, body: "{}")).Keys);
+    }
+
+    [Fact]
+    public void Body_requires_content_type()
+    {
+        var errors = Validate(WithTarget("POST", new() { ["Accept"] = "*/*" }, "a=1"));
+        Assert.Equal(new[] { "target.headers" }, errors.Keys);
+        Assert.Contains("Content-Type", Assert.Single(errors["target.headers"]));
+    }
+
+    [Fact]
+    public void Body_size_is_limited_in_utf8_bytes()
+    {
+        Assert.Empty(Validate(WithTarget("POST", Json, new string('x', ScenarioValidator.MaxBodyBytes))));
+
+        var errors = Validate(WithTarget("POST", Json, new string('x', ScenarioValidator.MaxBodyBytes + 1)));
+        Assert.Equal(new[] { "target.body" }, errors.Keys);
+
+        // Кириллица - два байта на символ: половина предела в символах уже на пределе в байтах
+        var cyrillic = new string('я', ScenarioValidator.MaxBodyBytes / 2 + 1);
+        Assert.Equal(new[] { "target.body" }, Validate(WithTarget("POST", Json, cyrillic)).Keys);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Bad Name")]
+    [InlineData("X:Y")]
+    [InlineData("Заголовок")]
+    [InlineData("X\r\nInjected")]
+    public void Header_name_must_be_a_token(string name)
+    {
+        var errors = Validate(WithTarget("GET", new() { [name] = "v" }));
+        Assert.Equal(new[] { $"target.headers.{name}" }, errors.Keys);
+    }
+
+    [Theory]
+    [InlineData("a\r\nX-Injected: 1")]
+    [InlineData("a\nb")]
+    [InlineData("a\0b")]
+    [InlineData("a\u007f")]
+    public void Header_value_has_no_control_characters(string value)
+    {
+        var errors = Validate(WithTarget("GET", new() { ["X-Value"] = value }));
+        Assert.Equal(new[] { "target.headers.X-Value" }, errors.Keys);
+    }
+
+    [Fact]
+    public void Null_header_value_is_error()
+    {
+        var errors = Validate(WithTarget("GET", new() { ["X-Value"] = null }));
+        Assert.Equal(new[] { "target.headers.X-Value" }, errors.Keys);
+    }
+
+    [Theory]
+    [InlineData("Content-Length")]
+    [InlineData("transfer-encoding")]
+    public void Headers_set_by_agent_are_rejected(string name)
+    {
+        var errors = Validate(WithTarget("GET", new() { [name] = "5" }));
+        Assert.Equal(new[] { $"target.headers.{name}" }, errors.Keys);
+    }
+
+    [Fact]
+    public void Header_names_are_unique_ignoring_case()
+    {
+        var errors = Validate(WithTarget("GET", new() { ["Accept"] = "a", ["ACCEPT"] = "b" }));
+        Assert.Single(errors);
+        Assert.StartsWith("target.headers.", errors.Keys.Single());
+    }
+
+    [Fact]
+    public void Header_count_and_size_are_limited()
+    {
+        var many = Enumerable.Range(0, ScenarioValidator.MaxHeaders + 1)
+            .ToDictionary(i => $"X-H{i}", _ => (string?)"v");
+        Assert.Equal(new[] { "target.headers" }, Validate(WithTarget("GET", many)).Keys);
+
+        var enough = many.Take(ScenarioValidator.MaxHeaders).ToDictionary();
+        Assert.Empty(Validate(WithTarget("GET", enough)));
+
+        var big = new Dictionary<string, string?> { ["X-Big"] = new string('v', ScenarioValidator.MaxHeaderBytes) };
+        Assert.Equal(new[] { "target.headers" }, Validate(WithTarget("GET", big)).Keys);
     }
 
     [Fact]

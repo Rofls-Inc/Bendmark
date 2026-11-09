@@ -1,0 +1,20 @@
+{
+  "name": "invalid-request",
+  "target": {
+    "url": "http://abstock:8080/api/orders",
+    "method": "GET",
+    "headers": {
+      "Content-Type": "application/json",
+      "Content-Length": "42",
+      "Bad Header": "x",
+      "X-Injected": "a\r\nX-Evil: 1"
+    },
+    "body": "{\"ticker\": \"ABS\"}"
+  },
+  "steps": [
+    {
+      "target_rps": 10,
+      "duration_seconds": 5
+    }
+  ]
+}

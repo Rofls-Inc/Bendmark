@@ -111,6 +111,22 @@ class ContractsTests(unittest.TestCase):
         self.assertEqual(response.diagnosis.confidence, analyzer_pb2.CONFIDENCE_UNSPECIFIED)
         self.assertEqual(list(response.diagnosis.evidence), [])
 
+    def test_target_headers_and_body_survive_serialization(self):
+        target = common_pb2.Target(
+            url="http://abstock:8080/api/orders",
+            method="POST",
+            headers={"Content-Type": "application/json", "X-Empty": ""},
+            body='{"note": "тест"}',
+        )
+        decoded = common_pb2.Target.FromString(target.SerializeToString())
+        self.assertEqual(decoded.method, "POST")
+        self.assertEqual(dict(decoded.headers), {"Content-Type": "application/json", "X-Empty": ""})
+        self.assertEqual(decoded.body, '{"note": "тест"}')
+        # GET без заголовков и тела: пустые значения по умолчанию, как у старых координаторов
+        empty = common_pb2.Target.FromString(common_pb2.Target(url="http://x/", method="GET").SerializeToString())
+        self.assertEqual(dict(empty.headers), {})
+        self.assertEqual(empty.body, "")
+
     def test_diagnosis_enums_survive_serialization(self):
         diagnosis = analyzer_pb2.Diagnosis(
             status=analyzer_pb2.DIAGNOSIS_STATUS_DIAGNOSED,

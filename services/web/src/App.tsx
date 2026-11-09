@@ -3,6 +3,7 @@ import { Link, NavLink, Route, Routes, useLocation } from 'react-router'
 import type { RunSummary } from './api/types'
 import { Logo } from './components/Logo'
 import { State } from './components/State'
+import { ThemeSelect } from './components/ThemeSelect'
 import { DEMO_RUN_ID } from './demo/demoRun'
 import { refreshRecent, useRecentRuns } from './run/recent'
 import { formatNumber } from './run/view'
@@ -68,7 +69,7 @@ function Sidebar() {
       onKeyDown={(e) => { if (e.key === 'Escape' && open) setOpenedAt(null) }}
     >
       <div className="sidebar-head">
-        <Link to="/" className="brand"><Logo />Bendmark</Link>
+        <Link to="/" className="brand"><span className="brand-mark"><Logo /></span>Bendmark</Link>
         <button
           type="button"
           className="menu-toggle"
@@ -81,31 +82,40 @@ function Sidebar() {
       </div>
 
       <div className="sidebar-nav" id="sidebar-nav">
-        <NavLink to="/" end className="new-run">Новый прогон</NavLink>
-
-        <span className="nav-group">Недавние</span>
-        {recent.kind === 'loading' && <span className="nav-note">Загружаем…</span>}
-        {recent.kind === 'error' && (
-          <span className="nav-note error">
-            {recent.message}{' '}
-            <button type="button" className="link" onClick={() => refreshRecent()}>Повторить</button>
-          </span>
-        )}
-        {recent.kind === 'ready' && recent.runs.length === 0 && <span className="nav-note">Прогонов пока нет</span>}
-        {recent.kind === 'ready' && recent.runs.map((run) => (
-          <NavLink key={run.id} to={`/runs/${run.id}`} title={run.id}>
-            <span className={`dot status-${run.status}`} aria-hidden />
-            <span className="recent-name">{run.scenario_name}</span>
-            <span className={`recent-meta status-${run.status}`} aria-hidden>{recentMeta(run)}</span>
+        <div className="sidebar-links">
+          <NavLink to="/" end className="new-run">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            Новый прогон
           </NavLink>
-        ))}
 
-        <span className="nav-group">Демо</span>
-        {demos.map((demo) => (
-          <NavLink key={demo.id} to={`/runs/${demo.id}`}>
-            <span className="recent-name">{demo.label}</span>
-          </NavLink>
-        ))}
+          <span className="nav-group">Недавние</span>
+          {recent.kind === 'loading' && <span className="nav-note">Загружаем…</span>}
+          {recent.kind === 'error' && (
+            <span className="nav-note error">
+              {recent.message}{' '}
+              <button type="button" className="link" onClick={() => refreshRecent()}>Повторить</button>
+            </span>
+          )}
+          {recent.kind === 'ready' && recent.runs.length === 0 && <span className="nav-note">Прогонов пока нет</span>}
+          {recent.kind === 'ready' && recent.runs.map((run) => (
+            <NavLink key={run.id} to={`/runs/${run.id}`} title={run.id}>
+              <span className={`dot status-${run.status}`} aria-hidden />
+              <span className="recent-name">{run.scenario_name}</span>
+              <span className={`recent-meta status-${run.status}`} aria-hidden>{recentMeta(run)}</span>
+            </NavLink>
+          ))}
+
+          <span className="nav-group">Демо</span>
+          {demos.map((demo) => (
+            <NavLink key={demo.id} to={`/runs/${demo.id}`}>
+              <span className="recent-name">{demo.label}</span>
+            </NavLink>
+          ))}
+        </div>
+
+        <ThemeSelect />
       </div>
     </nav>
   )

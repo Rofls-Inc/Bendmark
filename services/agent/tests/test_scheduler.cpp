@@ -19,7 +19,7 @@ StepConfig step(double rps, double seconds) {
 
 ScenarioConfig opt(long timeout_ms, int max_conc) {
     ScenarioConfig o;
-    o.url = "http://fake";
+    o.request.url = "http://fake";
     o.timeout_ms = timeout_ms;
     o.max_concurrency = max_conc;
     return o;
@@ -30,7 +30,7 @@ void test_no_skips_with_enough_workers() {
     auto o = opt(5000, 1000);
     std::atomic<bool> stop{false};
 
-    auto r = run_step("http://fake", step(100, 1.0), 1, o, sender, stop);
+    auto r = run_step(o.request, step(100, 1.0), 1, o, sender, stop);
     test::expect(r.has_value(), "step returned a result");
     if (!r) return;
 
@@ -48,7 +48,7 @@ void test_skips_with_slow_sender_and_one_worker() {
     o.concurrency_override = 1;
     std::atomic<bool> stop{false};
 
-    auto r = run_step("http://fake", step(100, 1.0), 1, o, sender, stop);
+    auto r = run_step(o.request, step(100, 1.0), 1, o, sender, stop);
     test::expect(r.has_value(), "step returned a result");
     if (!r) return;
 
@@ -67,7 +67,7 @@ void test_latency_from_scheduled_tick() {
     o.concurrency_override = 1;
     std::atomic<bool> stop{false};
 
-    auto r = run_step("http://fake", step(100, 1.0), 1, o, sender, stop);
+    auto r = run_step(o.request, step(100, 1.0), 1, o, sender, stop);
     test::expect(r.has_value(), "step returned a result");
     if (!r) return;
 
