@@ -28,6 +28,31 @@ services:
       retries: 3
       start_period: 60s
 
+  # Та же цель через инжектор. Неисправности применяются только к обращениям abstock-slow:8081.
+  abstock-slow:
+    build: services/injector
+    command:
+      - "-listen=0.0.0.0:8081"
+      - "-upstream=abstock:8080"
+      - "-delay=600ms"
+      - "-jitter=100ms"
+      - "-drop-rate=0"
+      - "-reset-after=0s"
+      - "-seed=42"
+      - "-health-listen=127.0.0.1:8082"
+    ports:
+      - "127.0.0.1:8081:8081"
+    networks: [bendmark]
+    depends_on:
+      abstock:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/injector", "-healthcheck", "http://127.0.0.1:8082/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
   # Агент — gRPC-сервер AgentService (#45). Слушает 50051, ждёт Run от координатора.
   # Значение по умолчанию для команды задаётся здесь, чтобы `docker compose run`
   # мог подменить его аргументами CLI-режима (URL, --steps, ...).
