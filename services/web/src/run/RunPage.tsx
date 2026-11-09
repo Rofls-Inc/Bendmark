@@ -175,7 +175,7 @@ function Live({ run, offline, onStopped }: PageProps & { onStopped: (run: Run) =
 function Report({ run, offline }: PageProps) {
   const navigate = useNavigate()
   const { steps, analysis } = run
-  const failed = analysis?.failed_step_index != null
+  const failed = analysis?.status === 'found' && analysis.failed_step_index != null
     ? steps.find((s) => s.index === analysis.failed_step_index)
     : undefined
   const skipped = firstSkippedStep(steps)
@@ -222,10 +222,7 @@ function Report({ run, offline }: PageProps) {
         <div className="grid report">
           <div className="column">
             <section className="panel">
-              <div className="panel-head">
-                <h2>Кривая производительности</h2>
-                <span className="hint">сверху пропускная · снизу p99</span>
-              </div>
+              <h2>Кривая производительности</h2>
               <PerformanceChart
                 steps={steps}
                 limitRps={analysis?.status === 'found' ? analysis.limit_rps : null}
@@ -259,10 +256,14 @@ function Report({ run, offline }: PageProps) {
 // Главный вывод отчёта: предел или почему его нет, и что было на ступени отказа
 function LimitCard({ run, failed }: { run: Run; failed?: Run['steps'][number] }) {
   const head = headline(run)
+  const confirmed = run.analysis?.limit_confirmed
+  const emptyValue = head.kind === 'pending' ? 'Ищем предел…'
+    : head.kind === 'below-first' ? 'Ниже первой ступени' : 'Не определён'
+
   return (
-    <section className={`limit kind-${head.kind}`} aria-label="Предел">
+    <section className="limit" aria-label="Предел">
       <div className="limit-value">
-        <span className="label">Предел</span>
+        <h2 className="label">Предел</h2>
         {head.value != null
           ? (
             <p className="big">
@@ -272,21 +273,28 @@ function LimitCard({ run, failed }: { run: Run; failed?: Run['steps'][number] })
               <span className="unit">запр/с</span>
             </p>
           )
-          : <p className="caption">{head.kind === 'pending' ? 'Ищем предел…' : 'Не определён'}</p>}
+          : <p className="caption">{emptyValue}</p>}
+        {failed && confirmed === false && <p className="limit-warning">Предел не подтверждён</p>}
       </div>
-      <div>
-        <p className="limit-text">{head.caption}</p>
-        {failed && (
-          <dl className="facts">
-            <dt>Отказ на нагрузке</dt>
-            <dd>{formatNumber(failed.target_rps)} запр/с</dd>
-            <dt>p99 на отказе</dt>
-            <dd>{formatNumber(failed.latency_ms.p99)} мс</dd>
-            <dt>Ошибки на отказе</dt>
-            <dd>{formatNumber(failed.errors.rate_percent, 1)} %</dd>
+      {failed ? (
+        <div className="limit-details">
+          <header>
+            <h3>Отказ на ступени {failed.index}</h3>
+            <span className="limit-text num">при {formatNumber(failed.target_rps)} запр/с</span>
+          </header>
+          <dl className="limit-metrics">
+            <div>
+              <dt className="label">Задержка p99</dt>
+              <dd className="num">{formatNumber(failed.latency_ms.p99)} мс</dd>
+            </div>
+            <div>
+              <dt className="label">Доля ошибок</dt>
+              <dd className="num">{formatNumber(failed.errors.rate_percent, 1)} %</dd>
+            </div>
           </dl>
-        )}
-      </div>
+          {confirmed == null && <p className="limit-text">{head.caption}</p>}
+        </div>
+      ) : <p className="limit-text">{head.caption}</p>}
     </section>
   )
 }

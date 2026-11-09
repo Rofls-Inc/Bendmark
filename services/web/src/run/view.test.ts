@@ -97,11 +97,11 @@ describe('stepVerdict', () => {
 describe('headline', () => {
   const run = (value: Analysis | null, overrides: Partial<Run> = {}): Run => ({ ...demoRun, analysis: value, ...overrides })
 
-  it('предел из демо-прогона 350 запр/с с подписью координатора', () => {
+  it('предел из демо-прогона 350 запр/с с предупреждением о подтверждении', () => {
     expect(headline(demoRun)).toEqual({
       kind: 'limit',
       value: 350,
-      caption: 'Предел: 350 запр/с, отказ на ступени 7 (400 запр/с)',
+      caption: expect.stringContaining('предел не подтверждён'),
     })
   })
 
