@@ -10,9 +10,9 @@ on:
       - "services/web/**"
       - "proto/**"
       - "testdata/results/**"
-      - "testdata/scenarios/smoke.json"
+      - "testdata/scenarios/smoke*.json"
       - "scripts/compose_smoke.py"
-      - "examples/scenario.yaml"
+      - "examples/**"
       - "docker-compose.yml"
       - ".github/workflows/compose.yml"
   push:
@@ -25,9 +25,9 @@ on:
       - "services/web/**"
       - "proto/**"
       - "testdata/results/**"
-      - "testdata/scenarios/smoke.json"
+      - "testdata/scenarios/smoke*.json"
       - "scripts/compose_smoke.py"
-      - "examples/scenario.yaml"
+      - "examples/**"
       - "docker-compose.yml"
       - ".github/workflows/compose.yml"
   workflow_dispatch:
@@ -64,6 +64,21 @@ jobs:
         timeout-minutes: 1
         # Два коротких прогона: HTTP API координатора и /api веба. Общий таймаут — 45 с.
         run: python3 scripts/compose_smoke.py
+
+      - name: Full POST run through coordinator and web proxy
+        timeout-minutes: 1
+        # Ждём результаты и анализ, чтобы следующий тест не получил занятого агента.
+        run: python3 scripts/compose_smoke.py --scenario testdata/scenarios/smoke-post.json
+
+      - name: Agent sends POST to abstock
+        timeout-minutes: 2
+        # negotiate SignalR - единственный POST ABStock без antiforgery-токена
+        run: |
+          docker compose run --rm -T agent 'http://abstock:8080/_blazor/negotiate?negotiateVersion=1' \
+            --steps 10:2 --method POST --header 'Accept: application/json' > result-post.json
+          cat result-post.json
+          jq -e '.steps | length == 1 and .[0].request_count > 0
+                 and .[0].errors.count == 0 and .[0].skipped_count == 0' result-post.json
 
       - name: Analyzer service answers FindLimit
         # Внутри контейнера: сгенерированный код лежит в /app/generated

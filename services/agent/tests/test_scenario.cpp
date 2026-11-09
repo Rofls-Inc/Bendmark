@@ -12,7 +12,7 @@ void test_indexes_and_fractional_duration() {
     auto sender = std::make_shared<FakeSender>(std::chrono::microseconds(100));
 
     ScenarioConfig sc;
-    sc.url = "http://fake";
+    sc.request.url = "http://fake";
     sc.timeout_ms = 5000;
     sc.max_concurrency = 1000;
     sc.steps = {
@@ -44,7 +44,7 @@ void test_skipped_step_is_still_emitted_and_scenario_continues() {
     auto sender = std::make_shared<FakeSender>(std::chrono::milliseconds(50));
 
     ScenarioConfig sc;
-    sc.url = "http://fake";
+    sc.request.url = "http://fake";
     sc.timeout_ms = 5000;
     sc.max_concurrency = 1000;
     sc.concurrency_override = 1;
@@ -70,7 +70,7 @@ void test_on_step_callback_called_for_each_step() {
     auto sender = std::make_shared<FakeSender>(std::chrono::microseconds(100));
 
     ScenarioConfig sc;
-    sc.url = "http://fake";
+    sc.request.url = "http://fake";
     sc.timeout_ms = 5000;
     sc.max_concurrency = 1000;
     sc.steps = {

@@ -6,11 +6,14 @@ import { State } from '../components/State'
 import { refreshRecent } from '../run/recent'
 import { formatDuration, formatNumber } from '../run/view'
 import {
+  METHODS,
+  buildRequest,
   buildSteps,
   defaultForm,
   formFromScenario,
   formWarnings,
   mapServerErrors,
+  methodHasBody,
   toScenario,
   totalSeconds,
   type FormErrors,
@@ -32,7 +35,13 @@ export function ScenarioPage() {
   const [submitting, setSubmitting] = useState(false)
 
   const built = buildSteps(form)
-  const errors: FormErrors = { ...serverErrors, ...(built.ok ? {} : built.errors) }
+  const request = buildRequest(form)
+  const errors: FormErrors = {
+    ...serverErrors,
+    ...(built.ok ? {} : built.errors),
+    ...(request.ok ? {} : request.errors),
+  }
+  const ready = built.ok && request.ok
   const warnings: FormWarnings = formWarnings(form, built.ok ? built.steps : null)
   const warn = (field: FormField) => (errors[field] ? undefined : warnings[field])
 
@@ -44,7 +53,7 @@ export function ScenarioPage() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!built.ok || submitting)
+    if (!built.ok || !request.ok || submitting)
       return
     setSubmitting(true)
     setServerErrors({})
@@ -69,7 +78,7 @@ export function ScenarioPage() {
           <h1>{form.name.trim() || 'Новый сценарий'}</h1>
         </div>
         <div className="actions">
-          <button type="submit" className="primary" disabled={!built.ok || submitting}>
+          <button type="submit" className="primary" disabled={!ready || submitting}>
             {submitting ? 'Запускаем…' : 'Запустить'}
           </button>
         </div>
@@ -91,9 +100,8 @@ export function ScenarioPage() {
             </Field>
             <div className="row target">
               <Field label="Метод" error={errors.method}>
-                {/* Агент пока умеет только GET */}
                 <select value={form.method} onChange={(e) => set('method')(e.target.value)}>
-                  <option value="GET">GET</option>
+                  {METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
                 </select>
               </Field>
               <Field
@@ -105,6 +113,26 @@ export function ScenarioPage() {
                 <input value={form.url} onChange={(e) => set('url')(e.target.value)} spellCheck={false} />
               </Field>
             </div>
+            <Field label="Заголовки" error={errors.headers} hint="По одному на строку: Имя: значение">
+              <textarea
+                rows={3}
+                value={form.headers}
+                onChange={(e) => set('headers')(e.target.value)}
+                placeholder="Content-Type: application/json"
+                spellCheck={false}
+              />
+            </Field>
+            {methodHasBody(form.method) && (
+              <Field label="Тело" error={errors.body} hint="Отправляется в каждом запросе как есть">
+                <textarea
+                  rows={5}
+                  value={form.body}
+                  onChange={(e) => set('body')(e.target.value)}
+                  placeholder='{"quantity": 5}'
+                  spellCheck={false}
+                />
+              </Field>
+            )}
           </div>
 
           <div className="panel-section">
@@ -139,7 +167,7 @@ export function ScenarioPage() {
             {built.ok && <span className="hint">{built.steps.length} ступеней</span>}
           </div>
           {built.ok
-            ? <Plan steps={built.steps} url={form.url} />
+            ? <Plan steps={built.steps} method={form.method} url={form.url} />
             : <State kind="empty" title="План не построен"><p className="muted">Исправьте ошибки в форме.</p></State>}
         </section>
       </div>
@@ -147,7 +175,7 @@ export function ScenarioPage() {
   )
 }
 
-function Plan({ steps, url }: { steps: { target_rps: number; duration_seconds: number }[]; url: string }) {
+function Plan({ steps, method, url }: { steps: { target_rps: number; duration_seconds: number }[]; method: string; url: string }) {
   const max = Math.max(...steps.map((s) => s.target_rps))
   const requests = steps.reduce((sum, s) => sum + s.target_rps * s.duration_seconds, 0)
 
@@ -169,7 +197,7 @@ function Plan({ steps, url }: { steps: { target_rps: number; duration_seconds: n
       </div>
       <dl className="facts">
         <dt>Цель</dt>
-        <dd>{url.trim() || '—'}</dd>
+        <dd>{method} {url.trim() || '—'}</dd>
         <dt>Ступеней</dt>
         <dd>{steps.length}</dd>
         <dt>Запросов всего</dt>

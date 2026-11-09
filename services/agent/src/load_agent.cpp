@@ -118,7 +118,7 @@ void write_json_string(std::ostream& os, const std::string& s) {
     os << '"';
 }
 
-RunResult run_one_step(const std::string& url,
+RunResult run_one_step(const HttpRequest& request,
                        const StepConfig& step,
                        const ScenarioConfig& opt,
                        std::shared_ptr<Sender> sender,
@@ -139,7 +139,7 @@ RunResult run_one_step(const std::string& url,
     try {
         workers.reserve(static_cast<size_t>(concurrency));
         for (int i = 0; i < concurrency; ++i) {
-            workers.emplace_back([&, url, timeout = opt.timeout_ms, sender] {
+            workers.emplace_back([&, timeout = opt.timeout_ms, sender] {
                 while (true) {
                     std::chrono::steady_clock::time_point scheduled_at;
                     {
@@ -150,7 +150,7 @@ RunResult run_one_step(const std::string& url,
                         ready.pop_front();
                     }
 
-                    SendOutcome outcome = sender->send(url, timeout, stop);
+                    SendOutcome outcome = sender->send(request, timeout, stop);
                     auto end = std::chrono::steady_clock::now();
 
                     RequestResult r;
@@ -245,14 +245,14 @@ int compute_workers(const StepConfig& step, const ScenarioConfig& opt) {
     return static_cast<int>(need);
 }
 
-std::optional<StepResult> run_step(const std::string& url,
+std::optional<StepResult> run_step(const HttpRequest& request,
                                    const StepConfig& step,
                                    int index,
                                    const ScenarioConfig& opt,
                                    std::shared_ptr<Sender> sender,
                                    std::atomic<bool>& stop,
                                    const CancelCheck& external_cancel) {
-    RunResult run = run_one_step(url, step, opt, sender, stop, external_cancel);
+    RunResult run = run_one_step(request, step, opt, sender, stop, external_cancel);
 
     if (stop.load()) {
         return std::nullopt;
@@ -272,7 +272,7 @@ std::vector<StepResult> run_scenario(const ScenarioConfig& sc,
     for (size_t i = 0; i < sc.steps.size(); ++i) {
         if (stop.load()) break;
 
-        auto r = run_step(sc.url, sc.steps[i], static_cast<int>(i + 1),
+        auto r = run_step(sc.request, sc.steps[i], static_cast<int>(i + 1),
                           sc, sender, stop, external_cancel);
         if (!r) break;
 

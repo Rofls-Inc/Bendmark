@@ -17,8 +17,16 @@ message Scenario {
 message Target {
   // Absolute HTTP(S) URL reachable from the agent, not from the user's browser.
   string url = 1;
-  // Only uppercase GET is supported in v1. Reject other values at both inputs.
+  // GET, POST, PUT, PATCH or DELETE, uppercase. Reject other values at both inputs.
   string method = 2;
+  // Extra request headers, sent as given on every request. Names are HTTP tokens,
+  // unique case-insensitively; values have no control characters except tab.
+  // Content-Length and Transfer-Encoding are not allowed: the agent derives them from body.
+  // At most 32 headers and 8 KiB of names and values together.
+  map<string, string> headers = 3;
+  // Request body as UTF-8 text, sent as is on every request. Empty means no body.
+  // GET and DELETE must not have a body. At most 64 KiB.
+  string body = 4;
 }
 
 message Step {

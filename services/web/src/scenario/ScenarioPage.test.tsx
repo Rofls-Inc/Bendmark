@@ -110,4 +110,44 @@ describe('ScenarioPage', () => {
     await userEvent.clear(screen.getByDisplayValue('45'))
     expect((screen.getByRole('button', { name: 'Запустить' }) as HTMLButtonElement).disabled).toBe(true)
   })
+  it('POST с заголовками и телом уходит координатору', async () => {
+    const calls = mockFetch((call) => call.method === 'POST'
+      ? json(201, { id: 'run-2', status: 'created' })
+      : json(200, { runs: [], next_before: null }))
+    renderPage()
+
+    // У GET поля тела нет
+    expect(screen.queryByPlaceholderText('{"quantity": 5}')).toBeNull()
+    await userEvent.selectOptions(screen.getByDisplayValue('GET'), 'POST')
+    await userEvent.click(screen.getByPlaceholderText('{"quantity": 5}'))
+    await userEvent.paste('{"quantity": 5}')
+    // Тело без Content-Type не запускается
+    expect(screen.getByText(/нужен заголовок Content-Type/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Запустить' }) as HTMLButtonElement).disabled).toBe(true)
+
+    await userEvent.click(screen.getByPlaceholderText('Content-Type: application/json'))
+    await userEvent.paste('Content-Type: application/json\nX-Trace: abc')
+    await userEvent.click(screen.getByRole('button', { name: 'Запустить' }))
+
+    expect(await screen.findByText('страница прогона run-2')).toBeTruthy()
+    expect((calls[0].body as Scenario).target).toEqual({
+      url: 'http://abstock:8080/',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Trace': 'abc' },
+      body: '{"quantity": 5}',
+    })
+  })
+
+  it('«Повторить» переносит заголовки и тело', () => {
+    renderPage({
+      scenario: {
+        name: 'orders',
+        target: { url: 'http://shop:8080/orders', method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: 'qty=5' },
+        steps: [{ target_rps: 10, duration_seconds: 5 }],
+      },
+    })
+    expect(screen.getByDisplayValue('PUT')).toBeTruthy()
+    expect(screen.getByDisplayValue('Content-Type: text/plain')).toBeTruthy()
+    expect(screen.getByDisplayValue('qty=5')).toBeTruthy()
+  })
 })

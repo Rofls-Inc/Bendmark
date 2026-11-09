@@ -69,7 +69,7 @@ ABStock как `abstock-slow`. Управление из сценария и э�
 
 Общие данные для автоматических тестов находятся в [`testdata/`](testdata/README.md):
 сценарии для координатора и результаты разных видов отказа для анализатора.
-Тесты сервисов используют эти файлы; `examples/` содержит пример сценария.
+Тесты сервисов используют эти файлы; `examples/` содержит примеры сценариев: `GET` главной страницы и `POST` (`scenario-post.yaml`).
 
 ---
 
@@ -350,6 +350,15 @@ docker compose up --build
    например «≥ 400 запр/с». Отсюда же можно скачать `result.json`.
 
 Для быстрой проверки уменьшите длительность ступени или число ступеней в форме.
+Кроме `GET` сценарий может отправлять `POST`, `PUT`, `PATCH` и `DELETE` с заголовками
+и телом. Пример — [`examples/scenario-post.yaml`](examples/scenario-post.yaml), его можно
+отправить координатору через API:
+
+```bash
+curl -X POST http://localhost:5080/runs -H "Content-Type: application/yaml" \
+  --data-binary @examples/scenario-post.yaml
+```
+
 Тот же прогон без интерфейса — запросами из [README координатора](services/coordinator/README.md#проверка-через-curl).
 
 Чтобы проверить влияние неисправностей, укажите цель `http://abstock-slow:8081/`
@@ -366,6 +375,9 @@ docker compose up --build
 ```bash
 # 50 запр/с в течение 10 с по ABStock внутри общей сети
 docker compose run --rm agent http://abstock:8080/ 50 10
+# POST с заголовком: --method, --header (можно повторять), --body
+docker compose run --rm agent 'http://abstock:8080/_blazor/negotiate?negotiateVersion=1' 20 10 \
+  --method POST --header 'Accept: application/json'
 # анализатор по файлу result.json; путь относительно корня репозитория
 docker compose run --rm analyzer-cli testdata/results/limit-found.json
 ```

@@ -47,6 +47,51 @@ public class ScenarioFixtureTests(CoordinatorFactory factory) : IClassFixture<Co
                     actualSteps[i].GetProperty(field).GetDouble());
     }
 
+    [Theory]
+    [InlineData("post-json.json", "application/json")]
+    [InlineData("post-json.yaml", "application/yaml")]
+    public async Task Post_with_headers_and_body_is_accepted_and_preserved(string name, string contentType)
+    {
+        using var response = await PostFixture(name, contentType);
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var id = (await Api.ReadJsonAsync(response)).GetProperty("id").GetGuid();
+
+        var actual = (await Api.GetRunAsync(client, id)).GetProperty("scenario").GetProperty("target");
+        using var expectedDocument = JsonDocument.Parse(ReadFixture("post-json.json"));
+        var expected = expectedDocument.RootElement.GetProperty("target");
+
+        Assert.Equal("POST", actual.GetProperty("method").GetString());
+        Assert.Equal(expected.GetProperty("body").GetString(), actual.GetProperty("body").GetString());
+        // Имена заголовков не меняются: ни snake_case, ни другой регистр
+        var expectedHeaders = expected.GetProperty("headers").EnumerateObject()
+            .Select(h => (h.Name, h.Value.GetString())).Order();
+        var actualHeaders = actual.GetProperty("headers").EnumerateObject()
+            .Select(h => (h.Name, h.Value.GetString())).Order();
+        Assert.Equal(expectedHeaders, actualHeaders);
+    }
+
+    [Fact]
+    public async Task Invalid_request_reports_method_body_and_header_errors()
+    {
+        using var response = await PostFixture("invalid-request.json", "application/json");
+        await AssertFieldErrors(response,
+            "target.body", "target.headers.Content-Length", "target.headers.Bad Header", "target.headers.X-Injected");
+    }
+
+    [Fact]
+    public async Task Header_value_of_wrong_type_is_field_error()
+    {
+        const string json = """
+            {"name": "x", "target": {"url": "http://abstock:8080/", "method": "GET", "headers": {"X-Count": 5}},
+             "steps": [{"target_rps": 100, "duration_seconds": 45}]}
+            """;
+        using var response = await PostRaw(json, "application/json");
+        // Значение заголовка - строка: число не приводится молча
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var errors = (await Api.ReadJsonAsync(response)).GetProperty("errors").EnumerateObject().ToList();
+        Assert.StartsWith("target.headers", Assert.Single(errors).Name);
+    }
+
     [Fact]
     public async Task Invalid_values_report_field_errors()
     {
