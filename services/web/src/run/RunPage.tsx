@@ -267,6 +267,7 @@ function LimitCard({ run, failed }: { run: Run; failed?: Run['steps'][number] })
           ? (
             <p className="big">
               {head.kind === 'lower-bound' && '≥ '}
+              {head.kind === 'below-first' && '< '}
               {formatNumber(head.value)}
               <span className="unit">запр/с</span>
             </p>

@@ -65,7 +65,12 @@ export function StepsTable({ steps, analysis = null, runningStep }: Props) {
                     {formatNumber(s.skipped_count)}
                   </td>
                 )}
-                {withVerdicts && <td className="verdict">{verdict && verdictLabel[verdict]}</td>}
+                {withVerdicts && (
+                  <td className="verdict" title={verdict === 'not-analyzed'
+                    ? 'В анализ вошли только ступени до первой с пропусками' : undefined}>
+                    {verdict && verdictLabel[verdict]}
+                  </td>
+                )}
               </tr>
             )
           })}
