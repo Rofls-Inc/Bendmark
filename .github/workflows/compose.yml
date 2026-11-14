@@ -6,6 +6,7 @@ on:
       - "services/agent/**"
       - "services/analyzer/**"
       - "services/coordinator/**"
+      - "services/emulator/**"
       - "services/injector/**"
       - "services/web/**"
       - "proto/**"
@@ -14,6 +15,7 @@ on:
       - "scripts/compose_smoke.py"
       - "examples/**"
       - "docker-compose.yml"
+      - ".github/compose.emulator-smoke.yml"
       - ".github/workflows/compose.yml"
   push:
     branches: [main, dev]
@@ -21,6 +23,7 @@ on:
       - "services/agent/**"
       - "services/analyzer/**"
       - "services/coordinator/**"
+      - "services/emulator/**"
       - "services/injector/**"
       - "services/web/**"
       - "proto/**"
@@ -29,6 +32,7 @@ on:
       - "scripts/compose_smoke.py"
       - "examples/**"
       - "docker-compose.yml"
+      - ".github/compose.emulator-smoke.yml"
       - ".github/workflows/compose.yml"
   workflow_dispatch:
 
@@ -145,10 +149,30 @@ jobs:
           # Ошибка должна быть после создания прогона, а не из-за недоступности HTTP API.
           grep -q 'status=failed' broken-agent.log
 
+      - name: Emulator reports no limit in healthy mode
+        timeout-minutes: 3
+        run: |
+          docker compose -f docker-compose.yml -f .github/compose.emulator-smoke.yml \
+            up -d --build --wait --wait-timeout 60 emulator
+          python3 scripts/compose_smoke.py --base-url http://localhost:5173/api \
+            --scenario testdata/scenarios/smoke-emulator.json --emulator-mode healthy
+
+      - name: Emulator reports a confirmed limit in reject mode
+        timeout-minutes: 2
+        env:
+          SMOKE_EMULATOR_MODE: reject
+        run: |
+          docker compose -f docker-compose.yml -f .github/compose.emulator-smoke.yml \
+            up -d --no-deps --force-recreate --wait --wait-timeout 60 emulator
+          # 3 workers / 0.25 s = 12 RPS. 10.5 RPS leaves scheduling margin
+          # below capacity and stays within the 15% tolerance.
+          python3 scripts/compose_smoke.py --base-url http://localhost:5173/api \
+            --scenario testdata/scenarios/smoke-emulator.json --emulator-mode reject --expected-limit-rps 12
+
       - name: Logs
         if: failure()
-        run: docker compose logs
+        run: docker compose --profile emulator logs
 
       - name: Stop stack
         if: always()
-        run: docker compose --profile tools down -v
+        run: docker compose --profile tools --profile emulator down -v
