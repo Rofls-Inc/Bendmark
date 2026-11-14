@@ -1,0 +1,13 @@
+{
+  "name": "emulator-compose-smoke",
+  "target": {
+    "url": "http://emulator:8080/",
+    "method": "GET"
+  },
+  "steps": [
+    { "target_rps": 6, "duration_seconds": 5 },
+    { "target_rps": 10.5, "duration_seconds": 5 },
+    { "target_rps": 21, "duration_seconds": 5 },
+    { "target_rps": 30, "duration_seconds": 5 }
+  ]
+}

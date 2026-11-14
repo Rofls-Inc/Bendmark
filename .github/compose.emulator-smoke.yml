@@ -1,0 +1,8 @@
+services:
+  emulator:
+    command:
+      - "-mode=${SMOKE_EMULATOR_MODE:-healthy}"
+      - "-workers=3"
+      - "-service-time=250ms"
+      - "-jitter=0s"
+      - "-outlier-rate=0"
