@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-11-17T10:00:01.002Z",
+  "started_at": "2026-11-17T10:00:00Z",
+  "workers_busy": 0,
+  "workers_total": 8,
+  "queue_length": 0,
+  "queue_capacity": 64,
+  "completed_total": 0,
+  "rejected_total": 0
+}
