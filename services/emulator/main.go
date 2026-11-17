@@ -26,6 +26,7 @@ type config struct {
 	workers     int
 	queueSize   int
 	slowDelay   time.Duration
+	noise       noiseConfig
 }
 
 func main() {
@@ -52,6 +53,10 @@ func main() {
 	if cfg.mode == modeSlow {
 		log.Printf("extra delay for queued requests %s", cfg.slowDelay)
 	}
+	if cfg.noise.jitter > 0 || cfg.noise.outlierRate > 0 {
+		log.Printf("jitter %s, outlier rate %g, outlier delay %s, seed %d",
+			cfg.noise.jitter, cfg.noise.outlierRate, cfg.noise.outlierDelay, cfg.noise.seed)
+	}
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
@@ -71,6 +76,10 @@ func parseConfig(args []string, getenv func(string) string) (config, error) {
 	workers := flags.String("workers", envOr("EMULATOR_WORKERS", "4"), "maximum requests processed concurrently in pool modes")
 	queueSize := flags.String("queue-size", envOr("EMULATOR_QUEUE_SIZE", "32"), "maximum waiting requests in saturation and slow modes")
 	slowDelay := flags.String("slow-delay", envOr("EMULATOR_SLOW_DELAY", "5s"), "extra processing time for a queued request in slow mode")
+	jitter := flags.String("jitter", envOr("EMULATOR_JITTER", "0s"), "maximum random extra processing time per accepted request")
+	outlierRate := flags.String("outlier-rate", envOr("EMULATOR_OUTLIER_RATE", "0"), "probability of an extra outlier delay per accepted request (0..1)")
+	outlierDelay := flags.String("outlier-delay", envOr("EMULATOR_OUTLIER_DELAY", "0s"), "extra processing time for an outlier")
+	seed := flags.String("seed", envOr("EMULATOR_SEED", "1"), "seed for repeatable latency samples")
 	if err := flags.Parse(args); err != nil {
 		return config{}, err
 	}
@@ -107,8 +116,12 @@ func parseConfig(args []string, getenv func(string) string) (config, error) {
 	if err != nil || extraDelay <= 0 {
 		return config{}, fmt.Errorf("-slow-delay must be a positive duration, e.g. 5s")
 	}
+	noise, err := parseNoise(*jitter, *outlierRate, *outlierDelay, *seed, duration)
+	if err != nil {
+		return config{}, err
+	}
 	return config{
 		listen: *listen, mode: *mode, serviceTime: duration,
-		workers: workerCount, queueSize: queue, slowDelay: extraDelay,
+		workers: workerCount, queueSize: queue, slowDelay: extraDelay, noise: noise,
 	}, nil
 }

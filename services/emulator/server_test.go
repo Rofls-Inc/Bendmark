@@ -146,10 +146,14 @@ func TestRejectReturns503WhenFullAndReleasesSlotOnCancel(t *testing.T) {
 
 func TestConfigFlagsOverrideEnvironment(t *testing.T) {
 	env := map[string]string{
-		"EMULATOR_LISTEN":       "127.0.0.1:9000",
-		"EMULATOR_SERVICE_TIME": "invalid",
-		"EMULATOR_MODE":         "reject",
-		"EMULATOR_WORKERS":      "2",
+		"EMULATOR_LISTEN":        "127.0.0.1:9000",
+		"EMULATOR_SERVICE_TIME":  "invalid",
+		"EMULATOR_MODE":          "reject",
+		"EMULATOR_WORKERS":       "2",
+		"EMULATOR_JITTER":        "20ms",
+		"EMULATOR_OUTLIER_RATE":  "1",
+		"EMULATOR_OUTLIER_DELAY": "100ms",
+		"EMULATOR_SEED":          "42",
 	}
 	cfg, err := parseConfig([]string{"-service-time=10ms", "-workers=3"}, func(key string) string { return env[key] })
 	if err != nil {
@@ -158,6 +162,9 @@ func TestConfigFlagsOverrideEnvironment(t *testing.T) {
 	if cfg.listen != "127.0.0.1:9000" || cfg.serviceTime != 10*time.Millisecond || cfg.mode != modeReject || cfg.workers != 3 {
 		t.Fatalf("unexpected config: %+v", cfg)
 	}
+	if cfg.noise != (noiseConfig{jitter: 20 * time.Millisecond, outlierRate: 1, outlierDelay: 100 * time.Millisecond, seed: 42}) {
+		t.Fatalf("unexpected noise config: %+v", cfg.noise)
+	}
 }
 
 func TestInvalidConfigIsRejected(t *testing.T) {
@@ -165,6 +172,8 @@ func TestInvalidConfigIsRejected(t *testing.T) {
 		{"-mode=unknown"}, {"-service-time=invalid"}, {"-service-time=-1s"}, {"-listen=invalid"},
 		{"-workers=0"}, {"-workers=-1"}, {"-workers=abc"}, {"-mode=reject", "-service-time=0s"},
 		{"-queue-size=0"}, {"-slow-delay=0s"}, {"-slow-delay=invalid"},
+		{"-jitter=-1ms"}, {"-outlier-rate=NaN"}, {"-outlier-rate=1.1"}, {"-outlier-delay=-1ms"},
+		{"-outlier-rate=0.5"}, {"-seed=invalid"}, {"-jitter=9223372036854775807ns"},
 	} {
 		t.Run(args[0], func(t *testing.T) {
 			if _, err := parseConfig(args, func(string) string { return "" }); err == nil {

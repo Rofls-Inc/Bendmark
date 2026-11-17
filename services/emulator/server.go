@@ -8,6 +8,7 @@ import (
 )
 
 func newHandler(cfg config) http.Handler {
+	sampleNoise := cfg.noise.sampler()
 	var pool *workerPool
 	if cfg.mode != modeHealthy {
 		pool = &workerPool{slots: make(chan struct{}, cfg.workers)}
@@ -44,7 +45,7 @@ func newHandler(cfg config) http.Handler {
 			defer pool.release()
 		}
 
-		if !waitForProcessing(ctx, cfg.serviceTime) {
+		if ctx.Err() != nil || !waitForProcessing(ctx, cfg.serviceTime+sampleNoise()) {
 			return
 		}
 		if queued && cfg.mode == modeSlow && !waitForProcessing(ctx, cfg.slowDelay) {
