@@ -20,6 +20,7 @@ const (
 )
 
 type config struct {
+	healthcheck string
 	listen      string
 	mode        string
 	serviceTime time.Duration
@@ -36,6 +37,12 @@ func main() {
 	}
 	if err != nil {
 		log.Fatal(err)
+	}
+	if cfg.healthcheck != "" {
+		if err := checkHealth(cfg.healthcheck); err != nil {
+			log.Fatalf("healthcheck: %v", err)
+		}
+		return
 	}
 
 	server := &http.Server{
@@ -70,6 +77,7 @@ func parseConfig(args []string, getenv func(string) string) (config, error) {
 		return fallback
 	}
 	flags := flag.NewFlagSet("emulator", flag.ContinueOnError)
+	healthcheck := flags.String("healthcheck", "", "check an emulator health URL and exit")
 	listen := flags.String("listen", envOr("EMULATOR_LISTEN", "127.0.0.1:8083"), "HTTP listen address (host:port)")
 	mode := flags.String("mode", envOr("EMULATOR_MODE", modeHealthy), "emulation mode (healthy, reject, saturation or slow)")
 	serviceTime := flags.String("service-time", envOr("EMULATOR_SERVICE_TIME", "50ms"), "time spent processing each request, e.g. 50ms")
@@ -85,6 +93,9 @@ func parseConfig(args []string, getenv func(string) string) (config, error) {
 	}
 	if flags.NArg() != 0 {
 		return config{}, fmt.Errorf("unexpected positional arguments: %v", flags.Args())
+	}
+	if *healthcheck != "" {
+		return config{healthcheck: *healthcheck}, nil
 	}
 	switch *mode {
 	case modeHealthy, modeReject, modeSaturation, modeSlow:

@@ -71,6 +71,30 @@ services:
       retries: 3
       start_period: 5s
 
+  # Отдельная тестовая цель для сценариев с контролируемыми отказами (#76).
+  emulator:
+    profiles: [emulator]
+    build: services/emulator
+    ports:
+      - "127.0.0.1:8083:8080"
+    environment:
+      EMULATOR_MODE: "${EMULATOR_MODE:-healthy}"
+      EMULATOR_SERVICE_TIME: "${EMULATOR_SERVICE_TIME:-50ms}"
+      EMULATOR_WORKERS: "${EMULATOR_WORKERS:-4}"
+      EMULATOR_QUEUE_SIZE: "${EMULATOR_QUEUE_SIZE:-32}"
+      EMULATOR_SLOW_DELAY: "${EMULATOR_SLOW_DELAY:-5s}"
+      EMULATOR_JITTER: "${EMULATOR_JITTER:-0s}"
+      EMULATOR_OUTLIER_RATE: "${EMULATOR_OUTLIER_RATE:-0}"
+      EMULATOR_OUTLIER_DELAY: "${EMULATOR_OUTLIER_DELAY:-0s}"
+      EMULATOR_SEED: "${EMULATOR_SEED:-1}"
+    networks: [bendmark]
+    healthcheck:
+      test: ["CMD", "/emulator", "-healthcheck", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
   # Агенты - gRPC-серверы AgentService (#45). Каждый слушает 50051 в своём контейнере
   # и ждёт Run от координатора. Значение по умолчанию для команды задаётся в x-agent,
   # чтобы `docker compose run agent` мог подменить его аргументами CLI-режима (URL, --steps, ...).
