@@ -164,6 +164,7 @@ func TestInvalidConfigIsRejected(t *testing.T) {
 	for _, args := range [][]string{
 		{"-mode=unknown"}, {"-service-time=invalid"}, {"-service-time=-1s"}, {"-listen=invalid"},
 		{"-workers=0"}, {"-workers=-1"}, {"-workers=abc"}, {"-mode=reject", "-service-time=0s"},
+		{"-queue-size=0"}, {"-slow-delay=0s"}, {"-slow-delay=invalid"},
 	} {
 		t.Run(args[0], func(t *testing.T) {
 			if _, err := parseConfig(args, func(string) string { return "" }); err == nil {
@@ -171,4 +172,51 @@ func TestInvalidConfigIsRejected(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestQueueRejectsOverflowAndReusesCanceledPlace(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	pool := workerPool{slots: make(chan struct{}, 1), waiting: make(chan struct{}, 1)}
+	if queued, err := pool.acquire(ctx); queued || err != nil {
+		t.Fatalf("first request: queued=%v, error=%v", queued, err)
+	}
+
+	type result struct {
+		queued bool
+		err    error
+	}
+	enqueue := func(ctx context.Context) <-chan result {
+		entered := make(chan struct{}, 1)
+		done := make(chan result, 1)
+		go func() {
+			queued, err := pool.acquire(observedContext{Context: ctx, processing: entered})
+			done <- result{queued, err}
+		}()
+		select {
+		case <-entered:
+		case r := <-done:
+			t.Fatalf("request returned before waiting: %+v", r)
+		case <-ctx.Done():
+			t.Fatal("request did not enter the queue")
+		}
+		return done
+	}
+	waitCtx, cancelWait := context.WithCancel(ctx)
+	defer cancelWait()
+	waiting := enqueue(waitCtx)
+	if _, err := pool.acquire(ctx); err != errPoolFull {
+		t.Fatalf("overflow error = %v, want %v", err, errPoolFull)
+	}
+	cancelWait()
+	if r := <-waiting; r.err != context.Canceled {
+		t.Fatalf("canceled waiter: %+v", r)
+	}
+
+	waiting = enqueue(ctx)
+	pool.release()
+	if r := <-waiting; !r.queued || r.err != nil {
+		t.Fatalf("next waiter did not acquire the freed slot: %+v", r)
+	}
+	pool.release()
 }
