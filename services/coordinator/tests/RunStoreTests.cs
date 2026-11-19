@@ -87,12 +87,15 @@ public sealed class RunStoreTests : IDisposable
     }
 
     [Fact]
-    public void Running_run_becomes_aborted_after_restart_and_keeps_steps()
+    public void Running_run_becomes_aborted_after_restart_and_keeps_steps_and_telemetry()
     {
         var store = Open();
         var id = store.Create(Scenario()).Id;
-        store.TryStart(id);
+        store.TryStart(id, telemetryEnabled: true);
         store.AddStep(id, TestData.Step(1));
+        var observedAt = DateTime.UtcNow;
+        var snapshot = new TelemetrySnapshot(1, observedAt, observedAt, 0, 4, null, null, 0, 0);
+        store.AddTelemetryPoll(id, observedAt, snapshot);
 
         var run = Open().Get(id)!;
 
@@ -100,6 +103,8 @@ public sealed class RunStoreTests : IDisposable
         Assert.Equal(RunStore.RestartedWhileRunning, run.Error);
         Assert.NotNull(run.FinishedAt);
         Assert.Single(run.Steps);
+        Assert.Equal(TelemetryStatus.Partial, run.Telemetry.Status);
+        Assert.Equal(new TelemetrySample(id, observedAt, snapshot), Assert.Single(run.Telemetry.Snapshots));
         // Веб опрашивает прогон, пока анализ pending, поэтому анализ сразу закрыт ошибкой
         Assert.Equal(AnalysisStatus.Error, run.Analysis!.Status);
     }

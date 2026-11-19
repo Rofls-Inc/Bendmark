@@ -475,6 +475,8 @@ public sealed class AgentCountStoreTests : IDisposable
 
         var old = store.Get(id)!;
         Assert.Equal(1, old.AgentCount);
+        Assert.Equal(TelemetryStatus.Disabled, old.Telemetry.Status);
+        Assert.Empty(old.Telemetry.Snapshots);
         Assert.Equal(RunStatus.Completed, old.Status);
         Assert.Equal(3, store.Get(store.Create(Scenario(), agentCount: 3).Id)!.AgentCount);
         // Повторное открытие не добавляет столбец второй раз

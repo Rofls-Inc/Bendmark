@@ -6,6 +6,7 @@ on:
       - "services/coordinator/**"
       - "proto/**"
       - "testdata/scenarios/**"
+      - "testdata/telemetry/**"
       - "testdata/results/limit-found.json"
       - ".github/workflows/coordinator.yml"
   push:
@@ -14,6 +15,7 @@ on:
       - "services/coordinator/**"
       - "proto/**"
       - "testdata/scenarios/**"
+      - "testdata/telemetry/**"
       - "testdata/results/limit-found.json"
       - ".github/workflows/coordinator.yml"
   workflow_dispatch:

@@ -26,6 +26,9 @@
     <Content Include="../../../testdata/scenarios/**/*"
              Link="testdata/scenarios/%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../testdata/telemetry/*.json"
+             Link="testdata/telemetry/%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../../testdata/results/limit-found.json"
              Link="testdata/results/limit-found.json"
              CopyToOutputDirectory="PreserveNewest" />

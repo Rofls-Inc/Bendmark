@@ -44,6 +44,30 @@ builder.Services.AddOptions<StorageOptions>()
     .Validate(o => !string.IsNullOrWhiteSpace(o.Path), "Storage:Path - путь к файлу SQLite")
     .ValidateOnStart();
 
+builder.Services.AddOptions<TelemetryOptions>()
+    .Bind(builder.Configuration.GetSection(TelemetryOptions.SectionName))
+    .Validate(o => string.IsNullOrWhiteSpace(o.Url) ||
+        (Uri.TryCreate(o.Url, UriKind.Absolute, out var uri) && (uri.Scheme is "http" or "https") &&
+         !string.IsNullOrEmpty(uri.Host)),
+        "Telemetry:Url должен быть абсолютным HTTP(S) URL источника снимков")
+    .Validate(o => o.IntervalSeconds is >= 0.01 and <= 3600,
+        "Telemetry:IntervalSeconds должен быть числом от 0.01 до 3600")
+    .Validate(o => o.TimeoutSeconds is >= 0.01 and <= 60,
+        "Telemetry:TimeoutSeconds должен быть числом от 0.01 до 60")
+    .ValidateOnStart();
+
+builder.Services.AddHttpClient(TelemetryOptions.SectionName, (services, client) =>
+{
+    var options = services.GetRequiredService<IOptions<TelemetryOptions>>().Value;
+    client.Timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
+    client.MaxResponseContentBufferSize = 64 * 1024;
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AllowAutoRedirect = false,
+    UseCookies = false,
+}).RemoveAllLoggers();
+builder.Services.AddSingleton<TelemetryCollector>();
+
 builder.Services.AddSingleton<RunStore>();
 builder.Services.AddHealthChecks();
 builder.Services.AddSingleton<RunQueue>();
@@ -103,7 +127,7 @@ app.MapGet("/runs/{id:guid}", (Guid id, RunStore store) =>
     store.Get(id) is { } run ? Results.Ok(run) : Results.NotFound());
 
 // result.json для запуска анализатора из командной строки
-app.MapGet("/runs/{id:guid}/result", (Guid id, RunStore store) => store.Get(id) switch
+app.MapGet("/runs/{id:guid}/result", (Guid id, RunStore store) => store.Get(id, includeTelemetry: false) switch
 {
     null => Results.NotFound(),
     { } run when RunResultDto.CanExport(run) => Results.Ok(RunResultDto.From(run)),
