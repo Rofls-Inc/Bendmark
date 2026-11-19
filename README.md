@@ -335,6 +335,7 @@ docker compose up --build
 | Координатор (HTTP API) | http://localhost:5080 |
 | ABStock | http://localhost:5062 |
 | ABStock через инжектор | http://localhost:8081 |
+| Эмулятор HTTP-цели (профиль `emulator`) | http://localhost:8083 |
 | Агент (gRPC), первый из трёх | `localhost:50051` |
 | Анализатор (gRPC) | `localhost:50052` |
 
@@ -383,6 +384,10 @@ docker compose run --rm agent 'http://abstock:8080/_blazor/negotiate?negotiateVe
 # анализатор по файлу result.json; путь относительно корня репозитория
 docker compose run --rm analyzer-cli testdata/results/limit-found.json
 ```
+
+Эмулятор подключается через `docker compose --profile emulator up --build`.
+Адрес цели для агентов — `http://emulator:8080/work`. Режимы и настройки
+описаны в [README эмулятора](services/emulator/README.md#docker-compose).
 
 Остановить всё: `docker compose down`. База ABStock и прогоны координатора остаются в томах `abstock-data` и `coordinator-data`, удалить их можно через `docker compose down -v`.
 

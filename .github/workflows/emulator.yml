@@ -1,0 +1,54 @@
+name: emulator
+
+on:
+  pull_request:
+    paths:
+      - "services/emulator/**"
+      - "docker-compose.yml"
+      - ".github/workflows/emulator.yml"
+  push:
+    branches: [main, dev]
+    paths:
+      - "services/emulator/**"
+      - "docker-compose.yml"
+      - ".github/workflows/emulator.yml"
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: services/emulator
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: services/emulator/go.mod
+          cache: false
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - run: go test -race -timeout 60s ./...
+      - run: go vet ./...
+
+      - name: Start emulator container and wait for health
+        working-directory: .
+        timeout-minutes: 3
+        run: docker compose --profile emulator up --build -d --wait --wait-timeout 45 emulator
+
+      - name: Check published HTTP port
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8083/health
+          curl --fail --silent --show-error http://127.0.0.1:8083/work |
+            jq -e '.status == "ok" and .mode == "healthy"'
+
+      - name: Emulator logs
+        if: failure()
+        working-directory: .
+        run: docker compose --profile emulator logs emulator
+
+      - name: Stop emulator container
+        if: always()
+        working-directory: .
+        run: docker compose --profile emulator rm --stop --force emulator
