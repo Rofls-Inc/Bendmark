@@ -72,7 +72,46 @@ def wait_for_analysis(base_url, run_id, deadline):
         time.sleep(min(0.25, remaining))
 
 
-def check_run(base_url, scenario, deadline):
+def check_emulator_report(analysis, steps, emulator_mode, expected_limit_rps):
+    diagnosis = analysis.get("diagnosis") or {}
+    if emulator_mode == "healthy":
+        require(
+            analysis.get("status") == "not_found"
+            and diagnosis.get("status") == "no_limit"
+            and analysis.get("limit_rps") == steps[-1]["target_rps"]
+            and analysis.get("failed_step_index") is None,
+            f"Healthy emulator should report no limit through the last step: {analysis}",
+        )
+        return
+
+    require(
+        analysis.get("status") == "found"
+        and analysis.get("limit_confirmed") is True
+        and diagnosis.get("status") == "diagnosed"
+        and diagnosis.get("cause") == "rejecting",
+        f"Reject emulator should report a confirmed limit with cause rejecting: {analysis}",
+    )
+    limit = analysis.get("limit_rps")
+    require(
+        type(limit) in (int, float) and abs(limit - expected_limit_rps) <= expected_limit_rps * 0.15,
+        f"Expected a limit within 15% of {expected_limit_rps:g} RPS: {analysis}",
+    )
+    failed_index = analysis.get("failed_step_index")
+    require(
+        type(failed_index) is int
+        and 3 <= failed_index < len(steps)
+        and limit == steps[failed_index - 2]["target_rps"],
+        f"Expected a limit at the last good step followed by two failure steps: {analysis}",
+    )
+    for step in steps[failed_index - 1:failed_index + 1]:
+        errors = step.get("errors", {}).get("count")
+        require(
+            type(errors) is int and 0 < errors < step["request_count"],
+            f"Expected both successful and rejected requests on the failure and confirmation steps: {step}",
+        )
+
+
+def check_run(base_url, scenario, deadline, *, emulator_mode=None, expected_limit_rps=None):
     print(f"Checking {base_url}", flush=True)
     created = request_json(base_url, "POST", "/runs", deadline, payload=scenario, expected_status=201)
     run_id = created.get("id")
@@ -91,15 +130,22 @@ def check_run(base_url, scenario, deadline):
         require(step.get("duration_seconds") == target["duration_seconds"], f"Unexpected step duration: {step}")
         require(step.get("request_count", 0) > 0, f"Step has no completed requests: {step}")
         require(step.get("skipped_count") == 0, f"Agent skipped requests: {step}")
-        require(step.get("errors", {}).get("count") == 0, f"Requests to ABStock failed: {step}")
-    require(run["analysis"].get("analyzed_steps") == len(planned), f"Analysis did not cover all steps: {json.dumps(run)}")
+        if emulator_mode != "reject":
+            require(step.get("errors", {}).get("count") == 0, f"Unexpected request errors: {step}")
+
+    analysis = run["analysis"]
+    require(analysis.get("analyzed_steps") == len(planned), f"Analysis did not cover all steps: {json.dumps(run)}")
+    if emulator_mode:
+        check_emulator_report(analysis, steps, emulator_mode, expected_limit_rps)
 
     result = request_json(base_url, "GET", f"/runs/{run_id}/result", deadline)
     require(result.get("status") == "completed", f"Unexpected exported status: {result}")
     require(result.get("scenario_name") == scenario["name"], f"Unexpected exported scenario: {result}")
     require(result.get("steps") == steps, f"Exported steps differ from the run: {result}")
     request_json(base_url, "POST", f"/runs/{run_id}/stop", deadline, expected_status=409)
-    print(f"  OK: {len(steps)} steps, analysis={run['analysis']['status']}, result=200, stop=409", flush=True)
+    print(f"  OK: {len(steps)} steps, analysis={analysis['status']}, result=200, stop=409", flush=True)
+    if emulator_mode:
+        print(f"  {emulator_mode}: limit_rps={analysis['limit_rps']}, diagnosis={analysis['diagnosis']}", flush=True)
 
 
 def main():
@@ -107,15 +153,25 @@ def main():
     parser.add_argument("--base-url", nargs="+", default=["http://localhost:5080", "http://localhost:5173/api"])
     parser.add_argument("--scenario", type=Path, default=Path(__file__).resolve().parents[1] / "testdata/scenarios/smoke.json")
     parser.add_argument("--timeout", type=int, default=45, help="Общий срок всех проверок, в секундах (по умолчанию 45)")
+    parser.add_argument("--emulator-mode", choices=("healthy", "reject"))
+    parser.add_argument("--expected-limit-rps", type=float, help="Расчётный предел для режима reject")
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
+    if args.emulator_mode == "reject":
+        if args.expected_limit_rps is None or not 0 < args.expected_limit_rps < float("inf"):
+            parser.error("reject requires a positive finite --expected-limit-rps")
+    elif args.expected_limit_rps is not None:
+        parser.error("--expected-limit-rps requires --emulator-mode reject")
 
     started = time.monotonic()
     try:
         scenario = json.loads(args.scenario.read_text(encoding="utf-8"))
         for base_url in args.base_url:
-            check_run(base_url, scenario, started + args.timeout)
+            check_run(
+                base_url, scenario, started + args.timeout,
+                emulator_mode=args.emulator_mode, expected_limit_rps=args.expected_limit_rps,
+            )
     except (SmokeError, OSError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
