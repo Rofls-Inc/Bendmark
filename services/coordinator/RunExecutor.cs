@@ -23,6 +23,7 @@ public sealed class RunExecutor(
     RunStore store,
     AgentGroup agents,
     IAnalyzer analyzer,
+    TelemetryCollector telemetry,
     IOptions<AgentOptions> agentOptions,
     TimeProvider time,
     ILogger<RunExecutor> logger)
@@ -54,15 +55,31 @@ public sealed class RunExecutor(
         AnalysisPlan? plan = null;
         try
         {
-            var run = store.TryStart(runId);
+            var source = telemetry.Enabled
+                ? telemetry.SourceFor(store.Get(runId, includeTelemetry: false)?.Scenario.Target?.Url)
+                : null;
+            var run = store.TryStart(runId, telemetryEnabled: source is not null);
             if (run is null)
             {
                 logger.LogInformation("Прогон {RunId} пропущен: остановлен, пока ждал в очереди", runId);
                 return;
             }
 
-            var (status, error) = await RunOnAgentsAsync(run, active, callCancellation.Token, stoppingToken);
-            plan = AnalysisPlan.For(status, store.Get(runId)!.Steps);
+            using var telemetryCancellation = CancellationTokenSource.CreateLinkedTokenSource(callCancellation.Token);
+            var collection = telemetry.CollectAsync(runId, source, telemetryCancellation.Token);
+            RunStatus status;
+            string? error;
+            try
+            {
+                (status, error) = await RunOnAgentsAsync(run, active, callCancellation.Token, stoppingToken);
+            }
+            finally
+            {
+                await telemetryCancellation.CancelAsync();
+                await collection;
+            }
+
+            plan = AnalysisPlan.For(status, store.Get(runId, includeTelemetry: false)!.Steps);
             store.TryFinish(runId, status, error, plan?.Initial());
             logger.LogInformation("Прогон {RunId} завершён со статусом {Status}", runId, status);
         }

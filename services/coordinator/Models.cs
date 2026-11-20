@@ -46,4 +46,5 @@ public sealed record Run
     public IReadOnlyList<StepResultDto> Steps { get; init; } = [];
     // Поиск предела (#34): null, пока прогон не завершён, и у failed или без ступеней
     public Analysis? Analysis { get; init; }
+    public RunTelemetry Telemetry { get; init; } = RunTelemetry.Disabled;
 }

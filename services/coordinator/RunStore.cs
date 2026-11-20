@@ -78,7 +78,8 @@ public sealed class RunStore
                 scenario_name TEXT,
                 scenario TEXT NOT NULL,
                 analysis TEXT,
-                agent_count INTEGER NOT NULL DEFAULT 1
+                agent_count INTEGER NOT NULL DEFAULT 1,
+                telemetry_enabled INTEGER NOT NULL DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS steps (
                 run_id TEXT NOT NULL REFERENCES runs (id),
@@ -86,8 +87,15 @@ public sealed class RunStore
                 step TEXT NOT NULL,
                 PRIMARY KEY (run_id, position)
             );
+            CREATE TABLE IF NOT EXISTS telemetry_polls (
+                seq INTEGER PRIMARY KEY,
+                run_id TEXT NOT NULL REFERENCES runs (id),
+                observed_at TEXT NOT NULL,
+                snapshot TEXT
+            );
+            CREATE INDEX IF NOT EXISTS telemetry_polls_run_id_seq ON telemetry_polls (run_id, seq);
             """);
-        AddAgentCount(connection);
+        AddRunColumns(connection);
         RecoverAfterRestart(connection);
     }
 
@@ -112,12 +120,12 @@ public sealed class RunStore
         return run;
     }
 
-    public Run? Get(Guid id)
+    public Run? Get(Guid id, bool includeTelemetry = true)
     {
         lock (_gate)
         {
             using var connection = Open();
-            return Load(connection, id);
+            return Load(connection, id, includeTelemetry);
         }
     }
 
@@ -172,20 +180,21 @@ public sealed class RunStore
     }
 
     // created -> running. null, если прогона нет или он уже не в очереди (например, остановлен)
-    public Run? TryStart(Guid id)
+    public Run? TryStart(Guid id, bool telemetryEnabled = false)
     {
         lock (_gate)
         {
             using var connection = Open();
             var changed = Execute(connection, """
-                UPDATE runs SET status = $running, started_at = $now
+                UPDATE runs SET status = $running, started_at = $now, telemetry_enabled = $telemetry_enabled
                 WHERE id = $id AND status = $created
                 """,
                 ("$id", id.ToString()),
                 ("$running", Name(RunStatus.Running)),
                 ("$created", Name(RunStatus.Created)),
-                ("$now", Time(DateTimeOffset.UtcNow)));
-            return changed == 1 ? Load(connection, id) : null;
+                ("$now", Time(DateTimeOffset.UtcNow)),
+                ("$telemetry_enabled", telemetryEnabled));
+            return changed == 1 ? Load(connection, id, includeTelemetry: telemetryEnabled) : null;
         }
     }
 
@@ -205,6 +214,23 @@ public sealed class RunStore
                 ("$id", id.ToString()),
                 ("$step", JsonSerializer.Serialize(step, Json)));
             return true;
+        }
+    }
+
+    public void AddTelemetryPoll(Guid id, DateTime observedAt, TelemetrySnapshot? snapshot)
+    {
+        lock (_gate)
+        {
+            using var connection = Open();
+            Execute(connection, """
+                INSERT INTO telemetry_polls (run_id, observed_at, snapshot)
+                SELECT id, $observed_at, $snapshot FROM runs
+                WHERE id = $id AND status = $running AND telemetry_enabled = 1
+                """,
+                ("$id", id.ToString()),
+                ("$observed_at", Time(observedAt)),
+                ("$snapshot", Serialize(snapshot)),
+                ("$running", Name(RunStatus.Running)));
         }
     }
 
@@ -280,11 +306,13 @@ public sealed class RunStore
             return _stopRequested.Contains(id);
     }
 
-    // База до #78 без agent_count: столбец добавляется, старые прогоны шли на одном агенте
-    private static void AddAgentCount(SqliteConnection connection)
+    // Старые прогоны шли на одном агенте и не собирали телеметрию.
+    private static void AddRunColumns(SqliteConnection connection)
     {
         if (Scalar<long>(connection, "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'agent_count'") == 0)
             Execute(connection, "ALTER TABLE runs ADD COLUMN agent_count INTEGER NOT NULL DEFAULT 1");
+        if (Scalar<long>(connection, "SELECT COUNT(*) FROM pragma_table_info('runs') WHERE name = 'telemetry_enabled'") == 0)
+            Execute(connection, "ALTER TABLE runs ADD COLUMN telemetry_enabled INTEGER NOT NULL DEFAULT 0");
     }
 
     // Прогоны прошлого запуска, которые уже никто не доведёт до конца:
@@ -337,11 +365,12 @@ public sealed class RunStore
         }
     }
 
-    private static Run? Load(SqliteConnection connection, Guid id)
+    private static Run? Load(SqliteConnection connection, Guid id, bool includeTelemetry = false)
     {
         Run run;
+        bool telemetryEnabled;
         using (var command = Command(connection, """
-            SELECT status, created_at, started_at, finished_at, error, scenario, analysis, agent_count
+            SELECT status, created_at, started_at, finished_at, error, scenario, analysis, agent_count, telemetry_enabled
             FROM runs WHERE id = $id
             """, ("$id", id.ToString())))
         using (var reader = command.ExecuteReader())
@@ -361,6 +390,7 @@ public sealed class RunStore
                 Analysis = Deserialize<Analysis>(reader, 6),
                 AgentCount = reader.GetInt32(7),
             };
+            telemetryEnabled = reader.GetBoolean(8);
         }
 
         var steps = new List<StepResultDto>();
@@ -372,7 +402,32 @@ public sealed class RunStore
                 steps.Add(Deserialize<StepResultDto>(reader, 0)!);
         }
 
-        return run with { Steps = steps };
+        var telemetry = includeTelemetry && telemetryEnabled
+            ? LoadTelemetry(connection, run)
+            : RunTelemetry.Disabled;
+        return run with { Steps = steps, Telemetry = telemetry };
+    }
+
+    private static RunTelemetry LoadTelemetry(SqliteConnection connection, Run run)
+    {
+        var snapshots = new List<TelemetrySample>();
+        var failedPolls = 0;
+        using var command = Command(connection, """
+            SELECT observed_at, snapshot FROM telemetry_polls WHERE run_id = $id ORDER BY seq
+            """, ("$id", run.Id.ToString()));
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (Deserialize<TelemetrySnapshot>(reader, 1) is { } snapshot)
+                snapshots.Add(new TelemetrySample(run.Id, ParseTime(reader.GetString(0)).UtcDateTime, snapshot));
+            else
+                failedPolls++;
+        }
+
+        var status = snapshots.Count == 0 ? TelemetryStatus.Unavailable
+            : failedPolls > 0 || run.Error == RestartedWhileRunning ? TelemetryStatus.Partial
+            : TelemetryStatus.Complete;
+        return new RunTelemetry(status, failedPolls, snapshots);
     }
 
     private static RunStatus? StatusOf(SqliteConnection connection, Guid id) =>
