@@ -128,6 +128,14 @@ func TestRejectReturns503WhenFullAndReleasesSlotOnCancel(t *testing.T) {
 			t.Fatalf("%s: got %d %q, want %d with a response body", tc.path, response.Code, response.Body.String(), tc.want)
 		}
 	}
+	busy := readTelemetry(t, handler)
+	assertTelemetryCount(t, "workers_busy", busy.WorkersBusy, 1)
+	assertTelemetryCount(t, "workers_total", busy.WorkersTotal, 1)
+	assertTelemetryCount(t, "rejected_total", busy.RejectedTotal, 1)
+	assertTelemetryCount(t, "completed_total", busy.CompletedTotal, 0)
+	if busy.QueueLength != nil || busy.QueueCapacity != nil {
+		t.Fatalf("reject mode reported a queue: %+v", busy)
+	}
 
 	cancelFirst()
 	select {
@@ -135,6 +143,11 @@ func TestRejectReturns503WhenFullAndReleasesSlotOnCancel(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("canceled request did not return")
 	}
+	idle := readTelemetry(t, handler)
+	assertTelemetryCount(t, "workers_busy", idle.WorkersBusy, 0)
+	assertTelemetryCount(t, "completed_total", idle.CompletedTotal, 0)
+	assertTelemetryCount(t, "rejected_total", idle.RejectedTotal, 1)
+
 	cancelNext, nextFinished := startRequest()
 	cancelNext()
 	select {
