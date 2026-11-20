@@ -48,6 +48,53 @@ func TestTelemetryCountsWorkAndExcludesTechnicalRequests(t *testing.T) {
 	}
 }
 
+func TestTelemetryReadsFullQueueAndExcludesCanceledWork(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	handler := newHandler(config{mode: modeSaturation, workers: 1, queueSize: 1, serviceTime: time.Hour})
+	initial := readTelemetry(t, handler)
+	assertTelemetryCount(t, "queue_length", initial.QueueLength, 0)
+
+	cancelActive, activeDone := startBlockedWork(t, ctx, handler)
+	cancelQueued, queuedDone := startBlockedWork(t, ctx, handler)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/work", nil).WithContext(ctx))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("overflow status = %d, want 503", response.Code)
+	}
+
+	full := readTelemetry(t, handler)
+	assertTelemetryCount(t, "workers_busy", full.WorkersBusy, 1)
+	assertTelemetryCount(t, "workers_total", full.WorkersTotal, 1)
+	assertTelemetryCount(t, "queue_length", full.QueueLength, 1)
+	assertTelemetryCount(t, "queue_capacity", full.QueueCapacity, 1)
+	assertTelemetryCount(t, "completed_total", full.CompletedTotal, 0)
+	assertTelemetryCount(t, "rejected_total", full.RejectedTotal, 1)
+
+	cancelQueued()
+	select {
+	case <-queuedDone:
+	case <-ctx.Done():
+		t.Fatal("canceled waiter did not leave the queue")
+	}
+	dequeued := readTelemetry(t, handler)
+	assertTelemetryCount(t, "queue_length", dequeued.QueueLength, 0)
+	assertTelemetryCount(t, "workers_busy", dequeued.WorkersBusy, 1)
+	assertTelemetryCount(t, "completed_total", dequeued.CompletedTotal, 0)
+	assertTelemetryCount(t, "rejected_total", dequeued.RejectedTotal, 1)
+
+	cancelActive()
+	select {
+	case <-activeDone:
+	case <-ctx.Done():
+		t.Fatal("canceled request did not release its worker")
+	}
+	drained := readTelemetry(t, handler)
+	assertTelemetryCount(t, "workers_busy", drained.WorkersBusy, 0)
+	assertTelemetryCount(t, "completed_total", drained.CompletedTotal, 0)
+	assertTelemetryCount(t, "rejected_total", drained.RejectedTotal, 1)
+}
+
 func readTelemetry(t *testing.T, handler http.Handler) telemetrySnapshot {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
