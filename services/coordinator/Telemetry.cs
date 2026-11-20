@@ -9,8 +9,15 @@ public sealed class TelemetryOptions
     public const string SectionName = "Telemetry";
 
     public string? Url { get; set; }
+    public string? TargetOrigin { get; set; }
     public double IntervalSeconds { get; set; } = 1;
     public double TimeoutSeconds { get; set; } = 0.5;
+
+    internal static Uri? ParseHttpUrl(string? value) =>
+        Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+        uri.Scheme is "http" or "https" && !string.IsNullOrEmpty(uri.Host)
+            ? uri
+            : null;
 }
 
 public sealed record TelemetrySnapshot(
@@ -73,9 +80,21 @@ public sealed class TelemetryCollector(
 
     public bool Enabled => !string.IsNullOrWhiteSpace(_options.Url);
 
-    public async Task CollectAsync(Guid runId, CancellationToken cancellationToken)
+    public Uri? SourceFor(string? targetUrl)
     {
-        if (!Enabled)
+        var source = TelemetryOptions.ParseHttpUrl(_options.Url);
+        var target = TelemetryOptions.ParseHttpUrl(targetUrl);
+        if (source is null || target is null)
+            return null;
+
+        var origin = TelemetryOptions.ParseHttpUrl(_options.TargetOrigin) ?? source;
+        return Uri.Compare(target, origin, UriComponents.SchemeAndServer, UriFormat.SafeUnescaped,
+            StringComparison.OrdinalIgnoreCase) == 0 ? source : null;
+    }
+
+    public async Task CollectAsync(Guid runId, Uri? source, CancellationToken cancellationToken)
+    {
+        if (source is null)
             return;
 
         using var client = clients.CreateClient(TelemetryOptions.SectionName);
@@ -83,7 +102,7 @@ public sealed class TelemetryCollector(
         {
             while (!cancellationToken.IsCancellationRequested)
             {
-                var snapshot = await PollAsync(client, runId, cancellationToken);
+                var snapshot = await PollAsync(client, runId, source, cancellationToken);
                 store.AddTelemetryPoll(runId, time.GetUtcNow().UtcDateTime, snapshot);
                 await Task.Delay(TimeSpan.FromSeconds(_options.IntervalSeconds), time, cancellationToken);
             }
@@ -95,12 +114,12 @@ public sealed class TelemetryCollector(
     }
 
     private async Task<TelemetrySnapshot?> PollAsync(
-        HttpClient client, Guid runId, CancellationToken cancellationToken)
+        HttpClient client, Guid runId, Uri source, CancellationToken cancellationToken)
     {
         try
         {
             // GetAsync буферизует тело в пределах лимита клиента. Тайм-аут охватывает и тело.
-            using var response = await client.GetAsync(_options.Url, cancellationToken);
+            using var response = await client.GetAsync(source, cancellationToken);
             if (response.StatusCode != HttpStatusCode.OK)
             {
                 logger.LogDebug("Источник телеметрии прогона {RunId} ответил {Status}", runId, response.StatusCode);

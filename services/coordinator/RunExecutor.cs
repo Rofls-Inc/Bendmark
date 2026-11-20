@@ -55,7 +55,10 @@ public sealed class RunExecutor(
         AnalysisPlan? plan = null;
         try
         {
-            var run = store.TryStart(runId, telemetry.Enabled);
+            var source = telemetry.Enabled
+                ? telemetry.SourceFor(store.Get(runId, includeTelemetry: false)?.Scenario.Target?.Url)
+                : null;
+            var run = store.TryStart(runId, telemetryEnabled: source is not null);
             if (run is null)
             {
                 logger.LogInformation("Прогон {RunId} пропущен: остановлен, пока ждал в очереди", runId);
@@ -63,7 +66,7 @@ public sealed class RunExecutor(
             }
 
             using var telemetryCancellation = CancellationTokenSource.CreateLinkedTokenSource(callCancellation.Token);
-            var collection = telemetry.CollectAsync(runId, telemetryCancellation.Token);
+            var collection = telemetry.CollectAsync(runId, source, telemetryCancellation.Token);
             RunStatus status;
             string? error;
             try

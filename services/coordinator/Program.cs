@@ -47,9 +47,11 @@ builder.Services.AddOptions<StorageOptions>()
 builder.Services.AddOptions<TelemetryOptions>()
     .Bind(builder.Configuration.GetSection(TelemetryOptions.SectionName))
     .Validate(o => string.IsNullOrWhiteSpace(o.Url) ||
-        (Uri.TryCreate(o.Url, UriKind.Absolute, out var uri) && (uri.Scheme is "http" or "https") &&
-         !string.IsNullOrEmpty(uri.Host)),
+        TelemetryOptions.ParseHttpUrl(o.Url) is not null,
         "Telemetry:Url должен быть абсолютным HTTP(S) URL источника снимков")
+    .Validate(o => string.IsNullOrWhiteSpace(o.TargetOrigin) ||
+        TelemetryOptions.ParseHttpUrl(o.TargetOrigin) is { AbsolutePath: "/", Query: "", Fragment: "", UserInfo: "" },
+        "Telemetry:TargetOrigin задаёт схему, хост и порт цели, например http://emulator:8080")
     .Validate(o => o.IntervalSeconds is >= 0.01 and <= 3600,
         "Telemetry:IntervalSeconds должен быть числом от 0.01 до 3600")
     .Validate(o => o.TimeoutSeconds is >= 0.01 and <= 60,

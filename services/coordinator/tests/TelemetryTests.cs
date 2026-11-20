@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -8,6 +10,53 @@ namespace Bendmark.Coordinator.Tests;
 
 public sealed class TelemetryTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData("http://emulator:8080")]
+    public async Task Only_the_matching_target_gets_telemetry(string targetOrigin)
+    {
+        var snapshot = TestData.Read("telemetry", "overloaded.json");
+        var polls = 0;
+        await using var source = await StartSourceAsync(context =>
+        {
+            Interlocked.Increment(ref polls);
+            return WriteSnapshotAsync(context, snapshot);
+        });
+
+        await using var factory = WithTelemetry(source);
+        factory.Settings["Telemetry:TargetOrigin"] = targetOrigin;
+        using var client = factory.CreateClient();
+
+        var abstockId = await Api.CreateRunAsync(client);
+        Assert.Equal(abstockId, await factory.Agent.WaitStartedAsync());
+        Assert.Equal("disabled", TelemetryStatusOf(await Api.GetRunAsync(client, abstockId)));
+        Complete(factory.Agent);
+        var abstock = await Api.WaitForStatusAsync(client, abstockId, "completed");
+        Assert.Equal("disabled", TelemetryStatusOf(abstock));
+        Assert.Empty(Snapshots(abstock).EnumerateArray());
+        Assert.Equal(0, Volatile.Read(ref polls));
+
+        var origin = targetOrigin.Length == 0 ? source.Urls.Single() : targetOrigin;
+        using var response = await client.PostAsJsonAsync("/runs", new
+        {
+            name = "emulator",
+            target = new { url = origin + "/work?mode=demo", method = "GET" },
+            steps = new[] { new { target_rps = 10, duration_seconds = 5 } },
+        });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var emulatorId = (await Api.ReadJsonAsync(response)).GetProperty("id").GetGuid();
+        Assert.Equal(emulatorId, await factory.Agent.WaitStartedAsync());
+        await Api.WaitForAsync(client, emulatorId, run => Snapshots(run).GetArrayLength() > 0);
+        factory.Agent.SendStep(TestData.Step(1, targetRps: 10));
+        factory.Agent.Finish();
+
+        var emulator = await Api.WaitForStatusAsync(client, emulatorId, "completed");
+        Assert.Equal("complete", TelemetryStatusOf(emulator));
+        var sample = Snapshots(emulator)[0];
+        Assert.Equal(emulatorId, sample.GetProperty("run_id").GetGuid());
+        Assert.Equal(64, sample.GetProperty("snapshot").GetProperty("queue_length").GetInt32());
+    }
+
     [Fact]
     public async Task Report_keeps_ordered_snapshots_after_restart()
     {
@@ -169,6 +218,7 @@ public sealed class TelemetryTests
     {
         var factory = database is null ? new CoordinatorFactory() : CoordinatorFactory.Reusing(database);
         factory.Settings["Telemetry:Url"] = source.Urls.Single() + "/telemetry";
+        factory.Settings["Telemetry:TargetOrigin"] = "http://abstock:8080";
         factory.Settings["Telemetry:IntervalSeconds"] = "0.05";
         factory.Settings["Telemetry:TimeoutSeconds"] = "2";
         return factory;

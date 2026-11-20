@@ -123,6 +123,7 @@ services:
       Agent__Addresses__2: http://agent-3:50051
       Analyzer__Address: http://analyzer:50052
       Telemetry__Url: "${Telemetry__Url:-}"
+      Telemetry__TargetOrigin: "${Telemetry__TargetOrigin:-}"
     # Прогоны в SQLite переживают пересоздание контейнера
     volumes:
       - coordinator-data:/app/data
