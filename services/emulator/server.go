@@ -16,11 +16,20 @@ func newHandler(cfg config) http.Handler {
 			pool.waiting = make(chan struct{}, cfg.queueSize)
 		}
 	}
+	telemetry := telemetryCounters{startedAt: time.Now().UTC()}
+	technical := http.NewServeMux()
+	technical.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		fmt.Fprintln(w, "ok")
+	})
+	technical.HandleFunc("GET /telemetry", func(w http.ResponseWriter, r *http.Request) {
+		telemetry.serve(w, r, pool)
+	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && r.URL.Path == "/health" {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			fmt.Fprintln(w, "ok")
+		switch r.URL.Path {
+		case "/health", "/telemetry":
+			technical.ServeHTTP(w, r)
 			return
 		}
 
@@ -34,6 +43,7 @@ func newHandler(cfg config) http.Handler {
 			var err error
 			queued, err = pool.acquire(ctx)
 			if err == errPoolFull {
+				telemetry.rejected.Add(1)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				fmt.Fprintf(w, "{\"status\":\"busy\",\"mode\":%q}\n", cfg.mode)
@@ -52,7 +62,9 @@ func newHandler(cfg config) http.Handler {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, "{\"status\":\"ok\",\"mode\":%q}\n", cfg.mode)
+		if _, err := fmt.Fprintf(w, "{\"status\":\"ok\",\"mode\":%q}\n", cfg.mode); err == nil {
+			telemetry.completed.Add(1)
+		}
 	})
 }
 

@@ -91,29 +91,7 @@ func TestRejectReturns503WhenFullAndReleasesSlotOnCancel(t *testing.T) {
 	defer cancel()
 	handler := newHandler(config{mode: modeReject, workers: 1, serviceTime: time.Hour})
 
-	startRequest := func() (context.CancelFunc, <-chan struct{}) {
-		t.Helper()
-		requestContext, cancelRequest := context.WithCancel(ctx)
-		t.Cleanup(cancelRequest)
-		processing := make(chan struct{}, 1)
-		request := httptest.NewRequest(http.MethodGet, "/work", nil).
-			WithContext(observedContext{Context: requestContext, processing: processing})
-		finished := make(chan struct{})
-		go func() {
-			handler.ServeHTTP(httptest.NewRecorder(), request)
-			close(finished)
-		}()
-
-		select {
-		case <-processing:
-		case <-finished:
-			t.Fatal("request finished before entering the pool")
-		case <-ctx.Done():
-			t.Fatal("request did not enter the pool")
-		}
-		return cancelRequest, finished
-	}
-	cancelFirst, firstFinished := startRequest()
+	cancelFirst, firstFinished := startBlockedWork(t, ctx, handler)
 
 	for _, tc := range []struct {
 		path string
@@ -128,6 +106,14 @@ func TestRejectReturns503WhenFullAndReleasesSlotOnCancel(t *testing.T) {
 			t.Fatalf("%s: got %d %q, want %d with a response body", tc.path, response.Code, response.Body.String(), tc.want)
 		}
 	}
+	busy := readTelemetry(t, handler)
+	assertTelemetryCount(t, "workers_busy", busy.WorkersBusy, 1)
+	assertTelemetryCount(t, "workers_total", busy.WorkersTotal, 1)
+	assertTelemetryCount(t, "rejected_total", busy.RejectedTotal, 1)
+	assertTelemetryCount(t, "completed_total", busy.CompletedTotal, 0)
+	if busy.QueueLength != nil || busy.QueueCapacity != nil {
+		t.Fatalf("reject mode reported a queue: %+v", busy)
+	}
 
 	cancelFirst()
 	select {
@@ -135,13 +121,41 @@ func TestRejectReturns503WhenFullAndReleasesSlotOnCancel(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("canceled request did not return")
 	}
-	cancelNext, nextFinished := startRequest()
+	idle := readTelemetry(t, handler)
+	assertTelemetryCount(t, "workers_busy", idle.WorkersBusy, 0)
+	assertTelemetryCount(t, "completed_total", idle.CompletedTotal, 0)
+	assertTelemetryCount(t, "rejected_total", idle.RejectedTotal, 1)
+
+	cancelNext, nextFinished := startBlockedWork(t, ctx, handler)
 	cancelNext()
 	select {
 	case <-nextFinished:
 	case <-ctx.Done():
 		t.Fatal("second canceled request did not return")
 	}
+}
+
+func startBlockedWork(t *testing.T, ctx context.Context, handler http.Handler) (context.CancelFunc, <-chan struct{}) {
+	t.Helper()
+	requestContext, cancelRequest := context.WithCancel(ctx)
+	t.Cleanup(cancelRequest)
+	processing := make(chan struct{}, 1)
+	request := httptest.NewRequest(http.MethodGet, "/work", nil).
+		WithContext(observedContext{Context: requestContext, processing: processing})
+	finished := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+		close(finished)
+	}()
+
+	select {
+	case <-processing:
+	case <-finished:
+		t.Fatal("request finished before waiting or processing")
+	case <-ctx.Done():
+		t.Fatal("request did not start waiting or processing")
+	}
+	return cancelRequest, finished
 }
 
 func TestConfigFlagsOverrideEnvironment(t *testing.T) {
