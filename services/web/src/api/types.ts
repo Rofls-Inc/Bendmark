@@ -65,6 +65,17 @@ export interface Diagnosis {
   evidence: string[]
 }
 
+export interface RunExplanation {
+  hypothesis: string
+  facts: {
+    step_index: number
+    target_rps: number
+    metric: 'request_count' | 'skipped_count' | 'throughput_rps' | 'p99_ms' | 'error_rate_percent'
+    value: number
+  }[]
+  experiment: string
+}
+
 export interface Run {
   id: string
   scenario: Scenario

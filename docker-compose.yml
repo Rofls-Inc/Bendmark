@@ -124,6 +124,8 @@ services:
       Analyzer__Address: http://analyzer:50052
       Telemetry__Url: "${Telemetry__Url:-}"
       Telemetry__TargetOrigin: "${Telemetry__TargetOrigin:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-}"
     # Прогоны в SQLite переживают пересоздание контейнера
     volumes:
       - coordinator-data:/app/data

@@ -248,4 +248,60 @@ describe('RunPage', () => {
     expect(await screen.findByText('Сервис отклоняет нагрузку')).toBeTruthy()
     expect(screen.getByText('ступень 7: ошибок 2.4 %')).toBeTruthy()
   })
+
+  it('готовый отчёт открывается без GPT и дополняется объяснением по запросу', async () => {
+    let finish!: (response: Response) => void
+    const model = new Promise<Response>((resolve) => { finish = resolve })
+    const calls = mockFetch((call) => call.method === 'POST'
+      ? model
+      : json(200, { ...demoRun, id: ID }))
+    renderPage()
+    const button = await screen.findByRole('button', { name: 'Объяснить через GPT' })
+    expect(calls.some((call) => call.method === 'POST')).toBe(false)
+    await user().click(button)
+
+    expect(calls.filter((call) => call.method === 'POST').map((call) => call.url))
+      .toEqual([`/api/runs/${ID}/explanation`])
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Готовим объяснение…' }).disabled).toBe(true)
+    expect(screen.getByRole('region', { name: 'Предел' }).textContent).toContain('350')
+    expect(screen.getByRole('link', { name: 'Скачать result.json' })).toBeTruthy()
+
+    await act(async () => finish(json(200, {
+      hypothesis: 'На последней ступени запросы могли скапливаться в очереди.',
+      facts: [{ step_index: 7, target_rps: 400, metric: 'p99_ms', value: 812 }],
+      experiment: 'Повторите ступень со сбором длины очереди.',
+    })))
+
+    const panel = within(screen.getByRole('region', { name: 'GPT-объяснение' }))
+    expect(panel.getByText('На последней ступени запросы могли скапливаться в очереди.')).toBeTruthy()
+    expect(panel.getByRole('listitem').textContent).toContain('Ступень 7 при 400 запр/с. Задержка p99 812 мс')
+    expect(panel.getByText('Повторите ступень со сбором длины очереди.')).toBeTruthy()
+  })
+
+  it('ошибка GPT оставляет отчёт доступным и позволяет повторить запрос', async () => {
+    let attempts = 0
+    mockFetch((call) => {
+      if (call.method !== 'POST')
+        return json(200, { ...demoRun, id: ID })
+      if (++attempts === 1)
+        return json(504, { detail: 'OpenAI не ответил вовремя.' })
+      return json(200, {
+        hypothesis: 'Возможна очередь запросов.',
+        facts: [{ step_index: 7, target_rps: 400, metric: 'error_rate_percent', value: 2.4 }],
+        experiment: 'Измерьте длину очереди на той же нагрузке.',
+      })
+    })
+    renderPage()
+
+    const u = user()
+    await u.click(await screen.findByRole('button', { name: 'Объяснить через GPT' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('OpenAI не ответил вовремя.')
+    expect(screen.getByRole('heading', { name: 'Диагноз' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Ступени' })).toBeTruthy()
+
+    await u.click(screen.getByRole('button', { name: 'Повторить запрос к GPT' }))
+    const panel = within(screen.getByRole('region', { name: 'GPT-объяснение' }))
+    expect((await panel.findByRole('listitem')).textContent).toContain('Доля ошибок 2,4 %')
+    expect(panel.queryByRole('alert')).toBeNull()
+  })
 })

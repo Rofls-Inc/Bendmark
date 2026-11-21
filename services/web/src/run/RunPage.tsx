@@ -9,6 +9,7 @@ import { StatusBadge } from '../components/StatusBadge'
 import { StepsTable } from '../components/StepsTable'
 import { StopButton } from '../components/StopButton'
 import { isDemoRun } from '../demo/demoRun'
+import { ExplanationPanel } from './ExplanationPanel'
 import { useRun } from './useRun'
 import {
   currentStep,
@@ -267,6 +268,8 @@ function Report({ run, offline }: PageProps) {
               <h2>Диагноз</h2>
               <DiagnosisNote analysis={analysis} />
             </section>
+            {downloadable && (analysis?.status === 'found' || analysis?.status === 'not_found' ||
+              analysis?.status === 'undetermined') && <ExplanationPanel key={run.id} runId={run.id} />}
           </div>
         </div>
       )}
