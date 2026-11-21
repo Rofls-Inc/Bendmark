@@ -153,6 +153,8 @@ grpc::Status AgentServiceImpl::Run(grpc::ServerContext* ctx,
         out->mutable_errors()->set_count(static_cast<uint64_t>(sr.error_count));
         out->mutable_errors()->set_rate_percent(sr.error_rate_percent);
         out->set_skipped_count(static_cast<uint64_t>(sr.skipped_count));
+        out->set_successful_completed_in_step(
+            static_cast<uint64_t>(sr.successful_completed_in_step));
 
         writer->Write(resp);
     };

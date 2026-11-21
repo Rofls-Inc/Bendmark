@@ -32,6 +32,7 @@ StepResult compute_step_result(int index, const StepConfig& step, const RunResul
     s.target_rps = step.target_rps;
     s.duration_seconds = step.duration_seconds;
     s.skipped_count = run.skipped;
+    s.successful_completed_in_step = run.successful_completed_in_step;
 
     std::vector<long> latencies;
     latencies.reserve(run.requests.size());
@@ -135,11 +136,16 @@ RunResult run_one_step(const HttpRequest& request,
     bool stopping = false;
 
     const int concurrency = compute_workers(step, opt);
-
+    
+    const auto step_start = std::chrono::steady_clock::now();
+    const auto step_deadline = step_start +
+        std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+            std::chrono::duration<double>(step.duration_seconds));
+            
     try {
         workers.reserve(static_cast<size_t>(concurrency));
         for (int i = 0; i < concurrency; ++i) {
-            workers.emplace_back([&, timeout = opt.timeout_ms, sender] {
+            workers.emplace_back([&, timeout = opt.timeout_ms, sender, step_deadline] {
                 while (true) {
                     std::chrono::steady_clock::time_point scheduled_at;
                     {
@@ -162,6 +168,9 @@ RunResult run_one_step(const HttpRequest& request,
 
                     {
                         std::lock_guard<std::mutex> lk(results_mtx);
+                        if (r.success && end <= step_deadline) {
+                            ++out.successful_completed_in_step;
+                        }
                         out.requests.push_back(std::move(r));
                     }
                     {
@@ -186,10 +195,9 @@ RunResult run_one_step(const HttpRequest& request,
     }
 
     const auto interval = std::chrono::duration<double>(1.0 / step.target_rps);
-    const auto start_time = std::chrono::steady_clock::now();
+    const auto start_time = step_start;
     const auto duration = std::chrono::duration<double>(step.duration_seconds);
-    const auto end_time = start_time +
-        std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration);
+    const auto end_time = step_deadline;
     auto next_tick = start_time;
 
     while (next_tick < end_time) {
@@ -328,7 +336,9 @@ bool write_result_json(const std::string& path, const ScenarioResult& result) {
              << "\"count\": " << s.error_count
              << ", \"rate_percent\": "; write_double(*out, s.error_rate_percent, 1);
         *out << " },\n";
-        *out << "      \"skipped_count\": " << s.skipped_count << "\n";
+        *out << "      \"skipped_count\": " << s.skipped_count << ",\n";
+        *out << "      \"successful_completed_in_step\": "
+             << s.successful_completed_in_step << "\n";
         *out << "    }";
         if (i + 1 < result.steps.size()) *out << ",";
         *out << "\n";

@@ -57,6 +57,12 @@ message StepResult {
   // Excluded from request_count, percentiles and errors. Not a service failure.
   // FindLimit rejects measurements with skipped_count > 0 in v1.
   uint64 skipped_count = 8;
+  // Successful responses (2xx) that completed no later than the end of the
+  // step's scheduling window. Subset of successful attempts counted in
+  // request_count; excludes requests that started in the step but drained
+  // after its deadline. Use with duration_seconds to see whether the actual
+  // completion rate grows across saturation steps.
+  uint64 successful_completed_in_step = 9;
 }
 
 message LatencyPercentiles {
