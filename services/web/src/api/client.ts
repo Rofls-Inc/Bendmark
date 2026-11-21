@@ -1,4 +1,4 @@
-import type { Run, RunList, RunStatus, Scenario } from './types'
+import type { Run, RunExplanation, RunList, RunStatus, Scenario } from './types'
 
 const BASE = '/api'
 
@@ -86,6 +86,17 @@ export async function stopRun(id: string): Promise<{ run: Run; pending: boolean 
 // result.json для анализатора: есть только у completed и aborted
 export function resultUrl(id: string): string {
   return `${BASE}/runs/${encodeURIComponent(id)}/result`
+}
+
+export async function explainRun(id: string, signal: AbortSignal): Promise<RunExplanation> {
+  const response = await request(`${BASE}/runs/${encodeURIComponent(id)}/explanation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    signal,
+  })
+  if (response.ok)
+    return response.json()
+  throw await toError(response)
 }
 
 export async function toError(response: Response): Promise<Error> {
