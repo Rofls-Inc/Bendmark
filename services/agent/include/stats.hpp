@@ -21,6 +21,7 @@ struct StepResult {
     long long error_count = 0;
     double error_rate_percent = 0.0;
     long long skipped_count = 0;
+    long long successful_completed_in_step = 0;
 };
 
 struct RequestResult {
@@ -33,6 +34,7 @@ struct RequestResult {
 struct RunResult {
     std::vector<RequestResult> requests;
     long long skipped = 0;
+    long long successful_completed_in_step = 0;
 };
 
 double percentile_ms(const std::vector<long>& sorted_us, int p_permille);
