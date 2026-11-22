@@ -391,6 +391,23 @@ docker compose run --rm analyzer-cli testdata/results/limit-found.json
 
 Остановить всё: `docker compose down`. База ABStock и прогоны координатора остаются в томах `abstock-data` и `coordinator-data`, удалить их можно через `docker compose down -v`.
 
+### Сбор данных для ML
+
+Из корня репозитория при запущенном Docker выполните:
+
+```bash
+python scripts/collect_ml_runs.py
+```
+
+Скрипт поднимает Compose-проект `bendmark-ml` на стандартных портах, включает сбор
+телеметрии и запускает эксперимент `saturation`. В `build/ml-runs/<run_id>.json`
+попадают метка эксперимента, параметры эмулятора и полный отчёт со сценарием,
+замерами, телеметрией и выводом анализатора. Скрипт сохраняет запись, когда в
+снимках видны занятый пул и очередь, а все ступени прошли без пропусков и ошибок.
+
+Чтобы сохранить прогоны в другую папку, передайте `--output-dir`. Чтобы остановить
+контейнеры эксперимента, выполните `docker compose -p bendmark-ml --profile emulator stop`.
+
 ---
 
 ## Команда
