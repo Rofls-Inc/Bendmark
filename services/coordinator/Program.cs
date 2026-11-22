@@ -70,6 +70,16 @@ builder.Services.AddHttpClient(TelemetryOptions.SectionName, (services, client) 
 }).RemoveAllLoggers();
 builder.Services.AddSingleton<TelemetryCollector>();
 
+builder.Services.AddHttpClient<RunExplanationClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(25);
+    client.MaxResponseContentBufferSize = 64 * 1024;
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AllowAutoRedirect = false,
+    UseCookies = false,
+}).RemoveAllLoggers();
+
 builder.Services.AddSingleton<RunStore>();
 builder.Services.AddHealthChecks();
 builder.Services.AddSingleton<RunQueue>();
@@ -136,6 +146,23 @@ app.MapGet("/runs/{id:guid}/result", (Guid id, RunStore store) => store.Get(id, 
     { } run => Results.Problem(
         statusCode: StatusCodes.Status409Conflict,
         detail: $"Результат есть только у прогона в статусе completed или aborted, сейчас {StatusName(run.Status)}"),
+});
+
+app.MapPost("/runs/{id:guid}/explanation", async (
+    Guid id, HttpRequest request, RunStore store, RunExplanationClient explainer, CancellationToken cancellationToken) =>
+{
+    // JSON требует CORS preflight для запроса с чужого сайта.
+    if (!request.HasJsonContentType())
+        return Results.StatusCode(StatusCodes.Status415UnsupportedMediaType);
+
+    var run = store.Get(id, includeTelemetry: false);
+    if (run is null)
+        return Results.NotFound();
+    if (!RunExplanationClient.CanExplain(run))
+        return Results.Problem("Нужны замеры завершённого или остановленного прогона и вывод анализатора.",
+            statusCode: StatusCodes.Status409Conflict);
+
+    return await explainer.ExplainAsync(run, cancellationToken);
 });
 
 app.MapPost("/runs/{id:guid}/stop", async (Guid id, RunExecutor executor, CancellationToken cancellationToken) =>

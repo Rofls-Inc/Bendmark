@@ -1246,6 +1246,33 @@ button:disabled:hover {
   font-size: var(--fs-dense);
 }
 
+.explanation {
+  overflow-wrap: anywhere;
+}
+
+.explanation button {
+  align-self: flex-start;
+}
+
+.explanation-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.explanation-details h3 {
+  margin: 0;
+  font-size: var(--fs-dense);
+}
+
+.explanation-details h3:not(:first-child) {
+  margin-top: var(--s-2);
+}
+
+.explanation-details p {
+  margin: 0;
+}
+
 .placeholder {
   margin: 0;
   color: var(--text-3);

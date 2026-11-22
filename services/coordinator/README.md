@@ -39,6 +39,8 @@ dotnet run --urls http://localhost:5080
 | `Telemetry:IntervalSeconds` | `1` | `Telemetry__IntervalSeconds` | Пауза между опросами, от 0.01 до 3600 с |
 | `Telemetry:TimeoutSeconds` | `0.5` | `Telemetry__TimeoutSeconds` | Тайм-аут каждого запроса с чтением тела, от 0.01 до 60 с |
 | `Storage:Path` | `data/runs.db` | `Storage__Path` | Файл SQLite с прогонами; относительный путь - от каталога запуска |
+| `OPENAI_API_KEY` | пусто | `OPENAI_API_KEY` | Ключ OpenAI для GPT-объяснений. Задаётся только координатору |
+| `OPENAI_MODEL` | `gpt-4.1-mini` | `OPENAI_MODEL` | Модель OpenAI с поддержкой Structured Outputs в Responses API |
 
 Срок вызова `Run` = сумма `duration_seconds` всех ступеней
 \+ число ступеней × `Agent:RequestTimeoutSeconds` + 30 с запаса. Остальные ключи
@@ -251,6 +253,23 @@ dotnet run --urls http://localhost:5080
 }
 ```
 
+## GPT-объяснение отчёта
+
+Задайте `OPENAI_API_KEY` в окружении координатора. Docker Compose берёт его из
+окружения командной строки или локального `.env`. С таким ключом запускайте
+стенд для доверенных пользователей, так как API координатора открыт и запросы к
+OpenAI расходуют средства проекта.
+
+По кнопке в отчёте координатор передаёт [OpenAI Responses API](https://developers.openai.com/api/reference/resources/responses/methods/create)
+числовые замеры ступеней, вывод анализатора, метод запроса, статус, число агентов
+и число запланированных ступеней. Имя сценария, адрес цели, заголовки и тело
+запроса остаются в Bendmark.
+
+Модель предлагает гипотезу, ссылки на измеренные факты и один проверочный
+эксперимент. Координатор проверяет ссылки на ступени и подставляет значения из
+SQLite. Объяснение показывается до ухода со страницы. Запуск прогона, базовый
+отчёт и экспорт `result.json` работают независимо от OpenAI.
+
 ## API
 
 `POST /runs` - принимает сценарий в JSON (`Content-Type: application/json`)
@@ -362,6 +381,19 @@ target:
 для прогона в статусе `completed` или `aborted`; для остальных - `409`,
 для неизвестного - `404`. Её можно сохранить в файл и передать анализатору из
 командной строки.
+
+`POST /runs/{id}/explanation` с заголовком `Content-Type: application/json`
+возвращает `{hypothesis, facts, experiment}`. У каждого факта есть
+`step_index`, `target_rps`, `metric` и `value`. Объяснение доступно для
+`completed` и `aborted` с замерами и статусом анализа `found`, `not_found`
+или `undetermined`. Коды ответа при ошибке:
+
+- `404` — прогон не найден.
+- `409` — прогон не готов или данных анализа нет.
+- `415` — нужен заголовок `Content-Type: application/json`.
+- `503` — ключ OpenAI не задан.
+- `502` — ошибка OpenAI или ответ не прошёл проверку.
+- `504` — OpenAI не ответил за 25 секунд.
 
 `POST /runs/{id}/stop` - остановка:
 
