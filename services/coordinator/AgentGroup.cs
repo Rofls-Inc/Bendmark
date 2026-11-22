@@ -79,11 +79,13 @@ public static class StepMerger
             return parts[0];
 
         ulong requests = 0, errors = 0, skipped = 0;
+        ulong? successfulInStep = 0;
         foreach (var part in parts)
         {
             requests = checked(requests + part.RequestCount);
             errors = checked(errors + part.Errors.Count);
             skipped = checked(skipped + part.SkippedCount);
+            successfulInStep = checked(successfulInStep + part.SuccessfulCompletedInStep);
         }
 
         // Перцентили агента без запросов - нули, это отсутствие измерений, а не нулевая задержка
@@ -105,6 +107,7 @@ public static class StepMerger
             requests / planned.DurationSeconds,
             latency,
             errors,
-            skipped);
+            skipped,
+            successfulInStep);
     }
 }

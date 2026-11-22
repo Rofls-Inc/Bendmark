@@ -30,6 +30,7 @@ export interface StepResult {
   duration_seconds: number
   request_count: number
   throughput_rps: number
+  successful_rps_in_step?: number
   latency_ms: { p50: number; p90: number; p99: number }
   errors: { count: number; rate_percent: number }
   // Тики, которые агент не отправил: не было свободного рабочего потока

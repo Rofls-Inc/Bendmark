@@ -50,6 +50,8 @@ void test_two_steps_two_responses() {
     bendmark::v1::RunResponse resp;
     while (reader->Read(&resp)) {
         indexes.push_back(resp.step_result().index());
+        test::expect(resp.step_result().has_successful_completed_in_step(),
+                     "the completion counter is present even when zero");
     }
 
     auto status = reader->Finish();

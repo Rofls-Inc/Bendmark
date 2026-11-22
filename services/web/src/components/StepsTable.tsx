@@ -21,7 +21,8 @@ export function StepsTable({ steps, analysis = null, runningStep }: Props) {
   const withVerdicts = hasVerdicts(analysis)
   // Колонка пропусков нужна, только если агент хоть раз не успевал
   const showSkipped = sorted.some((s) => s.skipped_count > 0)
-  const columns = 7 + (showSkipped ? 1 : 0) + (withVerdicts ? 1 : 0)
+  const showSuccessful = sorted.some((s) => s.successful_rps_in_step != null)
+  const columns = 7 + Number(showSkipped) + Number(showSuccessful) + Number(withVerdicts)
 
   return (
     // На узком экране таблица прокручивается сама, а не растягивает страницу
@@ -32,6 +33,7 @@ export function StepsTable({ steps, analysis = null, runningStep }: Props) {
             <th>Ступ.</th>
             <th>Нагрузка</th>
             <th>Пропускная</th>
+            {showSuccessful && <th title="Успешные ответы до конца ступени в секунду">Успехи в окне, RPS</th>}
             <th>p50</th>
             <th>p90</th>
             <th>p99</th>
@@ -48,6 +50,9 @@ export function StepsTable({ steps, analysis = null, runningStep }: Props) {
                 <td>{s.index}</td>
                 <td>{formatNumber(s.target_rps)}</td>
                 <td>{formatNumber(s.throughput_rps, 1)}</td>
+                {showSuccessful && (
+                  <td>{s.successful_rps_in_step == null ? '—' : formatNumber(s.successful_rps_in_step, 1)}</td>
+                )}
                 <td>{formatNumber(s.latency_ms.p50)}</td>
                 <td>{formatNumber(s.latency_ms.p90)}</td>
                 <td className={s.latency_ms.p99 > P99_THRESHOLD_MS ? 'bad' : undefined}>

@@ -227,12 +227,12 @@ public class MultiAgentRunTests
         Assert.Equal(150, running.GetProperty("scenario").GetProperty("steps")[0].GetProperty("target_rps").GetDouble());
 
         // Ступень от двух агентов из трёх в прогон не попадает
-        factory.Agents[0].SendStep(Part(1, 500, 20));
-        factory.Agents[1].SendStep(Part(1, 490, 35, errors: 5));
+        factory.Agents[0].SendStep(Part(1, 500, 20) with { SuccessfulCompletedInStep = 450 });
+        factory.Agents[1].SendStep(Part(1, 490, 35, errors: 5) with { SuccessfulCompletedInStep = 400 });
         await Task.Delay(200);
         Assert.Equal(0, Api.StepCount(await Api.GetRunAsync(client, id)));
 
-        factory.Agents[2].SendStep(Part(1, 480, 25));
+        factory.Agents[2].SendStep(Part(1, 480, 25) with { SuccessfulCompletedInStep = 350 });
         var withStep = await Api.WaitForAsync(client, id, run => Api.StepCount(run) == 1);
         var step = withStep.GetProperty("steps")[0];
         Assert.Equal(1, step.GetProperty("index").GetInt32());
@@ -240,11 +240,15 @@ public class MultiAgentRunTests
         Assert.Equal(10, step.GetProperty("duration_seconds").GetDouble());
         Assert.Equal(1470UL, step.GetProperty("request_count").GetUInt64());
         Assert.Equal(147, step.GetProperty("throughput_rps").GetDouble(), 9);
+        Assert.Equal(1200UL, step.GetProperty("successful_completed_in_step").GetUInt64());
+        Assert.Equal(120, step.GetProperty("successful_rps_in_step").GetDouble());
         Assert.Equal(35, step.GetProperty("latency_ms").GetProperty("p99").GetDouble());
         Assert.Equal(5UL, step.GetProperty("errors").GetProperty("count").GetUInt64());
         Assert.Equal(0.3, step.GetProperty("errors").GetProperty("rate_percent").GetDouble());
 
-        SendStepOnAll(factory, 2);
+        factory.Agents[0].SendStep(Part(2, 1000, 20) with { SuccessfulCompletedInStep = 900 });
+        factory.Agents[1].SendStep(Part(2, 1000, 20));
+        factory.Agents[2].SendStep(Part(2, 1000, 20) with { SuccessfulCompletedInStep = 950 });
         foreach (var agent in factory.Agents)
             agent.Finish();
 
@@ -252,6 +256,8 @@ public class MultiAgentRunTests
         Assert.Equal(2, Api.StepCount(done));
         Assert.Equal(300, done.GetProperty("steps")[1].GetProperty("target_rps").GetDouble());
         Assert.Equal(3000UL, done.GetProperty("steps")[1].GetProperty("request_count").GetUInt64());
+        Assert.False(done.GetProperty("steps")[1].TryGetProperty("successful_completed_in_step", out _));
+        Assert.False(done.GetProperty("steps")[1].TryGetProperty("successful_rps_in_step", out _));
         Assert.Equal(3, done.GetProperty("agent_count").GetInt32());
 
         // Анализатор получает сложенные ступени

@@ -40,6 +40,21 @@ void test_no_skips_with_enough_workers() {
     long long expected = 100;
     long long delta = std::llabs(s.request_count - expected);
     test::expect(delta <= 1, "request_count close to rps * duration");
+    test::expect(s.successful_completed_in_step > 0, "successful responses are counted in the window");
+}
+
+void test_late_success_is_excluded_from_the_window() {
+    auto sender = std::make_shared<FakeSender>(std::chrono::milliseconds(200));
+    auto o = opt(5000, 1);
+    std::atomic<bool> stop{false};
+
+    auto result = run_step(o.request, step(5, 0.1), 1, o, sender, stop);
+    test::expect(result.has_value(), "step returned a result");
+    if (!result) return;
+
+    test::expect_eq_long(result->request_count, 1, "late attempt is still included in request_count");
+    test::expect_eq_long(result->error_count, 0, "late attempt succeeded");
+    test::expect_eq_long(result->successful_completed_in_step, 0, "late response missed the window");
 }
 
 void test_skips_with_slow_sender_and_one_worker() {
@@ -97,6 +112,7 @@ void test_empty_run_result_produces_zeros() {
 
 int main() {
     test_no_skips_with_enough_workers();
+    test_late_success_is_excluded_from_the_window();
     test_skips_with_slow_sender_and_one_worker();
     test_latency_from_scheduled_tick();
     test_empty_run_result_produces_zeros();

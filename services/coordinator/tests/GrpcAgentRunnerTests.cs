@@ -32,7 +32,9 @@ public class GrpcAgentRunnerTests
             Script = async (request, stream, _) =>
             {
                 await stream.WriteAsync(Response(request, ProtoStep(1, 100, 45, requests: 4500, errors: 0)));
-                await stream.WriteAsync(Response(request, ProtoStep(2, 150, 45.5, requests: 6825, errors: 27, skipped: 3)));
+                var second = ProtoStep(2, 150, 45.5, requests: 6825, errors: 27, skipped: 3);
+                second.SuccessfulCompletedInStep = 0;
+                await stream.WriteAsync(Response(request, second));
             },
         };
         await using var host = await AgentHost.StartAsync(agent);
@@ -57,6 +59,8 @@ public class GrpcAgentRunnerTests
         Assert.InRange(remaining, 100.0, 131.0);
 
         Assert.Equal(2, steps.Count);
+        Assert.Null(steps[0].SuccessfulCompletedInStep);
+        Assert.Null(steps[0].SuccessfulRpsInStep);
         var second = steps[1];
         Assert.Equal(2u, second.Index);
         Assert.Equal(150.0, second.TargetRps);
@@ -67,6 +71,8 @@ public class GrpcAgentRunnerTests
         Assert.Equal(27UL, second.Errors.Count);
         Assert.Equal(0.4, second.Errors.RatePercent);
         Assert.Equal(3UL, second.SkippedCount);
+        Assert.Equal(0UL, second.SuccessfulCompletedInStep);
+        Assert.Equal(0.0, second.SuccessfulRpsInStep);
     }
 
     [Fact]

@@ -160,6 +160,14 @@ class ContractsTests(unittest.TestCase):
         self.assertIn("rate_percent", exported["errors"])
         self.assertNotIn("requestCount", exported)
         self.assertEqual(parse_steps(result)[0].request_count, step.request_count)
+        self.assertNotIn("successful_completed_in_step", exported)
+
+        step.successful_completed_in_step = 0
+        self.assertEqual(step_to_json(step)["successful_rps_in_step"], 0.0)
+        step.successful_completed_in_step = 125
+        exported = step_to_json(step)
+        self.assertEqual(exported["successful_completed_in_step"], 125)
+        self.assertEqual(exported["successful_rps_in_step"], 12.5)
 
     def test_skipped_requests_are_not_interpreted_as_a_service_limit(self):
         result = run_to_json("generator-overload", "completed", [measured_step(skipped=2)])

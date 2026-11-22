@@ -32,6 +32,7 @@ StepResult compute_step_result(int index, const StepConfig& step, const RunResul
     s.target_rps = step.target_rps;
     s.duration_seconds = step.duration_seconds;
     s.skipped_count = run.skipped;
+    s.successful_completed_in_step = run.successful_completed_in_step;
 
     std::vector<long> latencies;
     latencies.reserve(run.requests.size());
@@ -133,6 +134,7 @@ RunResult run_one_step(const HttpRequest& request,
     std::vector<std::thread> workers;
     int outstanding = 0;
     bool stopping = false;
+    std::chrono::steady_clock::time_point end_time;
 
     const int concurrency = compute_workers(step, opt);
 
@@ -162,6 +164,9 @@ RunResult run_one_step(const HttpRequest& request,
 
                     {
                         std::lock_guard<std::mutex> lk(results_mtx);
+                        if (r.success && end <= end_time) {
+                            ++out.successful_completed_in_step;
+                        }
                         out.requests.push_back(std::move(r));
                     }
                     {
@@ -188,8 +193,8 @@ RunResult run_one_step(const HttpRequest& request,
     const auto interval = std::chrono::duration<double>(1.0 / step.target_rps);
     const auto start_time = std::chrono::steady_clock::now();
     const auto duration = std::chrono::duration<double>(step.duration_seconds);
-    const auto end_time = start_time +
-        std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration);
+    // Workers read this only after taking a tick queued under work_mtx.
+    end_time = start_time + std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration);
     auto next_tick = start_time;
 
     while (next_tick < end_time) {
@@ -328,7 +333,13 @@ bool write_result_json(const std::string& path, const ScenarioResult& result) {
              << "\"count\": " << s.error_count
              << ", \"rate_percent\": "; write_double(*out, s.error_rate_percent, 1);
         *out << " },\n";
-        *out << "      \"skipped_count\": " << s.skipped_count << "\n";
+        *out << "      \"skipped_count\": " << s.skipped_count << ",\n";
+        *out << "      \"successful_completed_in_step\": "
+             << s.successful_completed_in_step << ",\n";
+        *out << "      \"successful_rps_in_step\": ";
+        write_double_exact(*out, s.duration_seconds > 0
+            ? s.successful_completed_in_step / s.duration_seconds : 0.0);
+        *out << "\n";
         *out << "    }";
         if (i + 1 < result.steps.size()) *out << ",";
         *out << "\n";
