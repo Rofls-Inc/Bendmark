@@ -25,6 +25,13 @@ public sealed record StepResultDto
     [JsonPropertyName("latency_ms")] public required LatencyDto LatencyMs { get; init; }
     [JsonPropertyName("errors")] public required ErrorsDto Errors { get; init; }
     [JsonPropertyName("skipped_count")] public required ulong SkippedCount { get; init; }
+    [JsonPropertyName("successful_completed_in_step")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ulong? SuccessfulCompletedInStep { get; init; }
+
+    [JsonPropertyName("successful_rps_in_step")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public double? SuccessfulRpsInStep => DurationSeconds > 0 ? SuccessfulCompletedInStep / DurationSeconds : null;
 
     // rate_percent считается из счётчиков, а не берётся у агента: так же делает proto/result_json.py
     public static StepResultDto Create(
@@ -35,7 +42,8 @@ public sealed record StepResultDto
         double throughputRps,
         LatencyDto latencyMs,
         ulong errorCount,
-        ulong skippedCount) => new()
+        ulong skippedCount,
+        ulong? successfulCompletedInStep = null) => new()
     {
         Index = index,
         TargetRps = targetRps,
@@ -45,6 +53,7 @@ public sealed record StepResultDto
         LatencyMs = latencyMs,
         Errors = new ErrorsDto { Count = errorCount, RatePercent = RatePercent(errorCount, requestCount) },
         SkippedCount = skippedCount,
+        SuccessfulCompletedInStep = successfulCompletedInStep,
     };
 
     // Доля ошибок в процентах, один знак после запятой; при нуле запросов - 0

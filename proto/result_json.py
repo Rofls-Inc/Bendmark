@@ -4,10 +4,11 @@
 def step_to_json(step) -> dict:
     count = int(step.request_count)
     errors = int(step.errors.count)
-    return {
+    duration = float(step.duration_seconds)
+    result = {
         "index": int(step.index),
         "target_rps": float(step.target_rps),
-        "duration_seconds": float(step.duration_seconds),
+        "duration_seconds": duration,
         "request_count": count,
         "throughput_rps": float(step.throughput_rps),
         "latency_ms": {
@@ -21,6 +22,12 @@ def step_to_json(step) -> dict:
         },
         "skipped_count": int(step.skipped_count),
     }
+    if step.HasField("successful_completed_in_step"):
+        successful = int(step.successful_completed_in_step)
+        result["successful_completed_in_step"] = successful
+        if duration > 0:
+            result["successful_rps_in_step"] = successful / duration
+    return result
 
 
 def run_to_json(scenario_name: str, status: str, steps) -> dict:

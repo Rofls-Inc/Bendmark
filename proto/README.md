@@ -189,6 +189,8 @@
 | `StepResult.index` | `index` | целое число |
 | `target_rps`, `duration_seconds`, `throughput_rps` | те же имена | числа |
 | `request_count`, `skipped_count` | те же имена | целые числа, включая ноль |
+| `successful_completed_in_step` | то же имя | целое число, когда все агенты измерили показатель |
+| `successful_completed_in_step / duration_seconds` | `successful_rps_in_step` | число, успешных ответов в секунду до конца окна ступени |
 | `latency_ms.p50/p90/p99` | вложенный `latency_ms` | числа |
 | `errors.count` | вложенный `errors.count` | целое число |
 | счётчики запросов и ошибок | `errors.rate_percent` | число, округлённое до одного знака; при нуле запросов — 0 |

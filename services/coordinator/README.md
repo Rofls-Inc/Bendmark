@@ -117,6 +117,7 @@ dotnet run --urls http://localhost:5080
 | `index`, `target_rps`, `duration_seconds` | Из сценария прогона, а не сумма долей |
 | `request_count`, `errors.count`, `skipped_count` | Сумма по агентам |
 | `throughput_rps` | Сумма `request_count` / `duration_seconds` |
+| `successful_completed_in_step`, `successful_rps_in_step` | Сумма успешных ответов в окне по всем агентам и эта сумма, делённая на `duration_seconds` |
 | `errors.rate_percent` | Из сумм, как обычно |
 | `latency_ms.p50/p90/p99` | Максимум по агентам с `request_count > 0`; если запросов нет ни у кого - нули |
 
@@ -337,6 +338,9 @@ target:
 `duration_seconds`, `request_count`, `throughput_rps`, `latency_ms{p50,p90,p99}`,
 `errors{count, rate_percent}`, `skipped_count`. Счётчики - целые числа,
 `rate_percent` считается координатором из счётчиков и округляется до одного знака.
+Когда все агенты передали счётчик успешных ответов до конца окна, ступень также
+содержит `successful_completed_in_step` и `successful_rps_in_step`. У старых записей
+и ступеней с агентами без этой метрики оба поля отсутствуют.
 
 Статусы: `created`, `running`, `completed`, `failed`, `aborted`.
 

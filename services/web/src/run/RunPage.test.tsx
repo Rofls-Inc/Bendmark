@@ -178,6 +178,22 @@ describe('RunPage', () => {
     expect(link.getAttribute('href')).toBe(`/api/runs/${ID}/result`)
   })
 
+  it('показывает успешные ответы в окне и отличает ноль от пропущенного значения', async () => {
+    mockFetch(() => json(200, run('completed', 3, {
+      steps: [
+        { ...demoRun.steps[0], successful_rps_in_step: 12.5 },
+        { ...demoRun.steps[1], successful_rps_in_step: 0 },
+        demoRun.steps[2],
+      ],
+    })))
+    renderPage()
+
+    expect(await screen.findByRole('columnheader', { name: 'Успехи в окне, RPS' })).toBeTruthy()
+    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1)
+    expect(rows.map((row) => within(row).getAllByRole('cell')[3].textContent))
+      .toEqual(['12,5', '0', '—'])
+  })
+
   it('пропуски агента отмечены', async () => {
     mockFetch(() => json(200, run('completed', 3, {
       steps: demoRun.steps.slice(0, 3).map((s) => (s.index === 3 ? { ...s, skipped_count: 40 } : s)),

@@ -134,6 +134,11 @@ public sealed class GrpcAgentRunner : IAgentRunner
         if (!values.All(double.IsFinite))
             throw new AgentProtocolException($"Агент прислал нечисловые метрики в ступени {step.Index}");
 
+        var errors = step.Errors?.Count ?? 0;
+        ulong? successfulInStep = step.HasSuccessfulCompletedInStep ? step.SuccessfulCompletedInStep : null;
+        if (successfulInStep is { } count && (count > step.RequestCount || errors > step.RequestCount - count))
+            throw new AgentProtocolException($"Счётчик успешных ответов в окне превышает число успешных запросов в ступени {step.Index}");
+
         return StepResultDto.Create(
             step.Index,
             step.TargetRps,
@@ -141,8 +146,9 @@ public sealed class GrpcAgentRunner : IAgentRunner
             step.RequestCount,
             step.ThroughputRps,
             new LatencyDto { P50 = latency?.P50 ?? 0, P90 = latency?.P90 ?? 0, P99 = latency?.P99 ?? 0 },
-            step.Errors?.Count ?? 0,
-            step.SkippedCount);
+            errors,
+            step.SkippedCount,
+            successfulInStep);
     }
 }
 

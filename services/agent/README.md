@@ -177,12 +177,14 @@ grpcurl -plaintext -d '{
 | `steps[].duration_seconds` | Заданная длительность, дробная, без потери точности |
 | `steps[].request_count` | Завершившиеся попытки: успехи, HTTP-ошибки, таймауты |
 | `steps[].throughput_rps` | `request_count / duration_seconds` |
+| `steps[].successful_completed_in_step` | Успешные ответы (HTTP 2xx или 3xx), полученные до конца окна ступени |
+| `steps[].successful_rps_in_step` | `successful_completed_in_step / duration_seconds` |
 | `steps[].latency_ms.p50/p90/p99` | Перцентили задержки от запланированного момента |
 | `steps[].errors.count` | HTTP 4xx/5xx, таймауты, транспортные ошибки |
 | `steps[].errors.rate_percent` | Доля ошибок от `request_count`, до 1 знака |
 | `steps[].skipped_count` | Тики, не отправленные из-за занятости воркеров |
 
-В gRPC-режиме `RunResponse.step_result` — тот же `StepResult`, поле в поле. Формат JSON применяется только при CLI-запуске и при сборке итогового файла координатором.
+В gRPC-режиме `RunResponse.step_result` передаёт счётчик `successful_completed_in_step`. Координатор рассчитывает скорость для отчёта из счётчика и длительности ступени.
 
 ## Семантика измерений
 

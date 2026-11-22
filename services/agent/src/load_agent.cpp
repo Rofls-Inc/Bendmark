@@ -134,18 +134,14 @@ RunResult run_one_step(const HttpRequest& request,
     std::vector<std::thread> workers;
     int outstanding = 0;
     bool stopping = false;
+    std::chrono::steady_clock::time_point end_time;
 
     const int concurrency = compute_workers(step, opt);
-    
-    const auto step_start = std::chrono::steady_clock::now();
-    const auto step_deadline = step_start +
-        std::chrono::duration_cast<std::chrono::steady_clock::duration>(
-            std::chrono::duration<double>(step.duration_seconds));
-            
+
     try {
         workers.reserve(static_cast<size_t>(concurrency));
         for (int i = 0; i < concurrency; ++i) {
-            workers.emplace_back([&, timeout = opt.timeout_ms, sender, step_deadline] {
+            workers.emplace_back([&, timeout = opt.timeout_ms, sender] {
                 while (true) {
                     std::chrono::steady_clock::time_point scheduled_at;
                     {
@@ -168,7 +164,7 @@ RunResult run_one_step(const HttpRequest& request,
 
                     {
                         std::lock_guard<std::mutex> lk(results_mtx);
-                        if (r.success && end <= step_deadline) {
+                        if (r.success && end <= end_time) {
                             ++out.successful_completed_in_step;
                         }
                         out.requests.push_back(std::move(r));
@@ -195,9 +191,10 @@ RunResult run_one_step(const HttpRequest& request,
     }
 
     const auto interval = std::chrono::duration<double>(1.0 / step.target_rps);
-    const auto start_time = step_start;
+    const auto start_time = std::chrono::steady_clock::now();
     const auto duration = std::chrono::duration<double>(step.duration_seconds);
-    const auto end_time = step_deadline;
+    // Workers read this only after taking a tick queued under work_mtx.
+    end_time = start_time + std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration);
     auto next_tick = start_time;
 
     while (next_tick < end_time) {
@@ -338,7 +335,11 @@ bool write_result_json(const std::string& path, const ScenarioResult& result) {
         *out << " },\n";
         *out << "      \"skipped_count\": " << s.skipped_count << ",\n";
         *out << "      \"successful_completed_in_step\": "
-             << s.successful_completed_in_step << "\n";
+             << s.successful_completed_in_step << ",\n";
+        *out << "      \"successful_rps_in_step\": ";
+        write_double_exact(*out, s.duration_seconds > 0
+            ? s.successful_completed_in_step / s.duration_seconds : 0.0);
+        *out << "\n";
         *out << "    }";
         if (i + 1 < result.steps.size()) *out << ",";
         *out << "\n";
