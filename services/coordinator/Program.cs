@@ -80,6 +80,16 @@ builder.Services.AddHttpClient<RunExplanationClient>(client =>
     UseCookies = false,
 }).RemoveAllLoggers();
 
+builder.Services.AddHttpClient<RunEmbeddingSearch>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(8);
+    client.MaxResponseContentBufferSize = 512 * 1024;
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AllowAutoRedirect = false,
+    UseCookies = false,
+}).RemoveAllLoggers();
+
 builder.Services.AddSingleton<RunStore>();
 builder.Services.AddHealthChecks();
 builder.Services.AddSingleton<RunQueue>();

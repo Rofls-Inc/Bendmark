@@ -29,8 +29,8 @@
     <Content Include="../../../testdata/telemetry/*.json"
              Link="testdata/telemetry/%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="../../../testdata/results/limit-found.json"
-             Link="testdata/results/limit-found.json"
+    <Content Include="../../../testdata/results/*.json"
+             Link="testdata/results/%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -294,6 +294,35 @@ describe('RunPage', () => {
     expect(panel.getByText('Повторите ступень со сбором длины очереди.')).toBeTruthy()
   })
 
+  it('открывает исходный отчёт из списка похожих разборов', async () => {
+    const sourceId = '7f1c2b8e-0000-4000-8000-000000000002'
+    const calls = mockFetch((call) => call.method === 'POST'
+      ? json(200, {
+        hypothesis: 'Возможна очередь запросов.',
+        facts: [{ step_index: 7, target_rps: 400, metric: 'p99_ms', value: 812 }],
+        experiment: 'Измерьте длину очереди.',
+        sources: [{
+          run_id: sourceId, scenario_name: 'Рампа для очереди', finished_at: '2026-11-20T11:30:00Z',
+          summary: 'Задержка выросла на двух ступенях.',
+        }],
+      })
+      : call.url === `/api/runs/${sourceId}`
+        ? json(200, { ...demoRun, id: sourceId, scenario: { ...demoRun.scenario, name: 'Исходный прогон' } })
+        : json(200, { ...demoRun, id: ID }))
+    renderPage()
+    await user().click(await screen.findByRole('button', { name: 'Объяснить через GPT' }))
+
+    const list = await screen.findByRole('list', { name: 'Похожие разборы' })
+    expect(within(list).getByText('Задержка выросла на двух ступенях.')).toBeTruthy()
+    const source = within(list).getByRole('link', { name: 'Рампа для очереди' })
+    expect(source.getAttribute('href')).toBe(`/runs/${sourceId}`)
+    await user().click(source)
+
+    expect(await screen.findByRole('heading', { name: 'Исходный прогон' })).toBeTruthy()
+    expect(calls.some((call) => call.method === 'GET' && call.url === `/api/runs/${sourceId}`)).toBe(true)
+    expect(calls.filter((call) => call.method === 'POST')).toHaveLength(1)
+  })
+
   it('ошибка GPT оставляет отчёт доступным и позволяет повторить запрос', async () => {
     let attempts = 0
     mockFetch((call) => {
