@@ -87,6 +87,10 @@ public sealed class RunStore
                 step TEXT NOT NULL,
                 PRIMARY KEY (run_id, position)
             );
+            CREATE TABLE IF NOT EXISTS report_embeddings (
+                fingerprint TEXT PRIMARY KEY,
+                embedding TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS telemetry_polls (
                 seq INTEGER PRIMARY KEY,
                 run_id TEXT NOT NULL REFERENCES runs (id),
@@ -176,6 +180,74 @@ public sealed class RunStore
                 return new RunPage(runs, null);
             runs.RemoveAt(limit);
             return new RunPage(runs, runs[^1].Id);
+        }
+    }
+
+    internal IReadOnlyList<Run> ListPastReports(Guid currentId, Analysis analysis, int limit)
+    {
+        lock (_gate)
+        {
+            using var connection = Open();
+            var cause = analysis.Diagnosis?.Cause;
+            using var command = Command(connection, """
+                SELECT past.id FROM runs AS past JOIN runs AS current ON current.id = $current
+                WHERE past.seq < current.seq
+                    AND julianday(past.finished_at) <= julianday(current.finished_at)
+                    AND past.status IN ('completed', 'aborted')
+                    AND json_extract(past.analysis, '$.status') = $status
+                    AND json_extract(past.analysis, '$.analyzed_steps') > 0
+                    AND ($cause IS NULL OR COALESCE(json_extract(past.analysis, '$.diagnosis.cause'), $inconclusive)
+                        IN ($cause, $inconclusive))
+                ORDER BY past.seq DESC
+                LIMIT $limit
+                """, ("$current", currentId.ToString()), ("$status", Name(analysis.Status)), ("$limit", limit),
+                ("$cause", cause is null or DiagnosisCause.Inconclusive ? null : Name(cause.Value)),
+                ("$inconclusive", Name(DiagnosisCause.Inconclusive)));
+            var ids = new List<Guid>();
+            using (var reader = command.ExecuteReader())
+            {
+                while (reader.Read())
+                    ids.Add(Guid.Parse(reader.GetString(0)));
+            }
+            return ids.Select(id => Load(connection, id, includeTelemetry: false)!).ToArray();
+        }
+    }
+
+    internal Dictionary<string, float[]> GetReportEmbeddings(IEnumerable<string> fingerprints)
+    {
+        lock (_gate)
+        {
+            using var connection = Open();
+            using var command = Command(connection, """
+                SELECT fingerprint, embedding FROM report_embeddings
+                WHERE fingerprint IN (SELECT value FROM json_each($fingerprints))
+                """, ("$fingerprints", JsonSerializer.Serialize(fingerprints)));
+            using var reader = command.ExecuteReader();
+            var embeddings = new Dictionary<string, float[]>();
+            while (reader.Read())
+                embeddings.Add(reader.GetString(0), Deserialize<float[]>(reader, 1)!);
+            return embeddings;
+        }
+    }
+
+    internal void SaveReportEmbeddings(IReadOnlyDictionary<string, float[]> embeddings)
+    {
+        lock (_gate)
+        {
+            using var connection = Open();
+            using var transaction = connection.BeginTransaction();
+            using var command = Command(connection, """
+                INSERT INTO report_embeddings (fingerprint, embedding) VALUES ($fingerprint, $embedding)
+                ON CONFLICT (fingerprint) DO NOTHING
+                """, ("$fingerprint", null), ("$embedding", null));
+            command.Transaction = transaction;
+            foreach (var (fingerprint, embedding) in embeddings)
+            {
+                command.Parameters["$fingerprint"].Value = fingerprint;
+                command.Parameters["$embedding"].Value = Serialize(embedding)!;
+                command.ExecuteNonQuery();
+            }
+            transaction.Commit();
         }
     }
 

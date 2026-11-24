@@ -4,11 +4,15 @@ using System.Text.Json.Serialization;
 
 namespace Bendmark.Coordinator;
 
-public sealed record RunExplanation(string Hypothesis, IReadOnlyList<RunFact> Facts, string Experiment);
+public sealed record RunExplanation(string Hypothesis, IReadOnlyList<RunFact> Facts, string Experiment)
+{
+    public IReadOnlyList<RunExplanationSource> Sources { get; init; } = [];
+}
 
 public sealed record RunFact(uint StepIndex, double TargetRps, string Metric, double Value);
 
-public sealed class RunExplanationClient(HttpClient client, IConfiguration configuration, ILogger<RunExplanationClient> logger)
+public sealed class RunExplanationClient(
+    HttpClient client, IConfiguration configuration, RunEmbeddingSearch search, ILogger<RunExplanationClient> logger)
 {
     private const string DefaultModel = "gpt-4.1-mini";
 
@@ -26,6 +30,10 @@ public sealed class RunExplanationClient(HttpClient client, IConfiguration confi
         Пропущенные тики (skipped_count) означают ограничение генератора, а не отказ сервиса.
         Для выводов о сервисе используй только первые analyzed_steps с request_count > 0
         и skipped_count = 0. Ноль попыток означает отсутствие измерений, а не нулевую задержку.
+
+        similar_reports — выводы и замеры похожих прошлых прогонов. Используй их как подсказку
+        для гипотезы или эксперимента. Обосновывай гипотезу только фактами текущего прогона.
+        Не ссылайся на ступени, числа и причины прошлых прогонов как на наблюдения текущего.
 
         Выбери от одного до четырёх различных фактов, которые обосновывают гипотезу.
         Укажи для каждого индекс ступени и метрику. p99_ms берётся из latency_ms.p99,
@@ -99,6 +107,7 @@ public sealed class RunExplanationClient(HttpClient client, IConfiguration confi
             return Results.Problem("Для GPT-объяснения нужен ключ OpenAI в настройках координатора.",
                 statusCode: StatusCodes.Status503ServiceUnavailable);
 
+        var matches = await search.FindAsync(run, apiKey.Trim(), cancellationToken);
         var configuredModel = configuration["OPENAI_MODEL"];
         using var request = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/responses");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
@@ -115,6 +124,7 @@ public sealed class RunExplanationClient(HttpClient client, IConfiguration confi
                 planned_steps = run.Scenario.Steps?.Count,
                 run.Steps,
                 run.Analysis,
+                similar_reports = matches.Select(match => match.Report),
             }, Json),
             store = false,
             max_output_tokens = 1200,
@@ -131,7 +141,7 @@ public sealed class RunExplanationClient(HttpClient client, IConfiguration confi
             var content = message?.Content is [ { Type: "output_text", Text: { } output } ] ? output : null;
             if (result?.Status == "completed" && content is not null &&
                 Ground(run, JsonSerializer.Deserialize<ModelExplanation>(content, Json)) is { } explanation)
-                return Results.Ok(explanation);
+                return Results.Ok(explanation with { Sources = matches.Select(match => match.Source).ToArray() });
 
             logger.LogWarning("OpenAI не вернул объяснение с проверяемыми фактами для прогона {RunId}", run.Id);
         }

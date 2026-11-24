@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router'
 import { explainRun } from '../api/client'
 import type { RunExplanation } from '../api/types'
 import { formatNumber } from './view'
@@ -64,11 +65,29 @@ export function ExplanationPanel({ runId }: { runId: string }) {
           </ul>
           <h3>Проверочный эксперимент</h3>
           <p>{state.explanation.experiment}</p>
+          {!!state.explanation.sources?.length && (
+            <>
+              <h3 id="similar-reports-heading">Похожие разборы</h3>
+              <ul className="reasons" aria-labelledby="similar-reports-heading">
+                {state.explanation.sources.map((source) => (
+                  <li key={source.run_id}>
+                    <Link to={`/runs/${encodeURIComponent(source.run_id)}`}>
+                      {source.scenario_name || `Прогон ${source.run_id.slice(0, 8)}`}
+                    </Link>
+                    {source.finished_at && (
+                      <> · <time dateTime={source.finished_at}>{new Date(source.finished_at).toLocaleString('ru-RU')}</time></>
+                    )}
+                    <p>{source.summary}</p>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       ) : (
         <>
           {state.kind === 'idle' &&
-            <p className="placeholder">Передаёт OpenAI замеры ступеней и вывод анализатора.</p>}
+            <p className="placeholder">Передаёт OpenAI замеры, вывод анализатора и найденные похожие разборы.</p>}
           {state.kind === 'error' && <p className="alert" role="alert">{state.message}</p>}
           <button type="button" onClick={generate} disabled={state.kind === 'loading'}>
             {state.kind === 'loading' ? 'Готовим объяснение…'

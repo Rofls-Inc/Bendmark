@@ -121,12 +121,134 @@ public sealed class RunExplanationTests
         Assert.Equal(0, provider.Calls);
     }
 
+    [Fact]
+    public async Task Similar_analyses_are_ranked_cached_and_linked_to_their_reports()
+    {
+        using var embeddings = new OpenAiStub(async request =>
+        {
+            Assert.Equal("https://api.openai.com/v1/embeddings", request.RequestUri!.AbsoluteUri);
+            Assert.Equal("Bearer test-key", request.Headers.Authorization?.ToString());
+            var body = await request.Content!.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("text-embedding-3-small", body.GetProperty("model").GetString());
+            var documents = body.GetProperty("input").EnumerateArray().Select(item => item.GetString()!).ToArray();
+            Assert.Equal(4, documents.Length);
+            Assert.All(documents, document => Assert.DoesNotContain("private", document));
+            var data = documents.Select((document, index) =>
+            {
+                using var profile = JsonDocument.Parse(document);
+                var p99 = FailureP99(profile.RootElement);
+                var vector = new float[body.GetProperty("dimensions").GetInt32()];
+                (vector[0], vector[1]) = p99 switch
+                {
+                    5000 => (1f, 0f),
+                    600 => (0.98f, 0.1f),
+                    812 => (0.8f, 0.6f),
+                    18 => (0f, 1f),
+                    _ => throw new InvalidOperationException($"Неожиданная ступень с p99 {p99}"),
+                };
+                return new { index, embedding = vector };
+            }).Reverse().ToArray();
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { data }) };
+        });
+        using var provider = new OpenAiStub(async request =>
+        {
+            var body = await request.Content!.ReadFromJsonAsync<JsonElement>();
+            using var input = JsonDocument.Parse(body.GetProperty("input").GetString()!);
+            var reports = input.RootElement.GetProperty("similar_reports");
+            Assert.Equal(new[] { 600d, 812d }, reports.EnumerateArray().Select(FailureP99));
+            Assert.Equal(1900, reports[0].GetProperty("confirmation_step").GetProperty("latency_ms").GetProperty("p99").GetDouble());
+            Assert.Equal(JsonValueKind.Null, reports[1].GetProperty("confirmation_step").ValueKind);
+            return ModelAnswer("""{"step_index":4,"metric":"p99_ms"}""");
+        });
+        await using var factory = NewFactory();
+        await using var host = WithProvider(factory, provider, embeddings);
+        using var client = host.CreateClient();
+        var store = host.Services.GetRequiredService<RunStore>();
+        SaveFixtureReport(store, "latency-jump", 3, DiagnosisCause.SlowResponses);
+        SaveFixtureReport(store, "latency-jump", 3, DiagnosisCause.SlowResponses);
+        var closest = SaveFixtureReport(store, "latency-jump", 3, DiagnosisCause.SlowResponses);
+        var relevant = SaveReport(store);
+        SaveFixtureReport(store, "inconclusive", 3, DiagnosisCause.Inconclusive);
+        SaveFixtureReport(store, "rejecting", 3, DiagnosisCause.Rejecting);
+        var query = SaveFixtureReport(store, "slow-responses", 4, DiagnosisCause.SlowResponses);
+        SaveFixtureReport(store, "latency-jump", 3, DiagnosisCause.SlowResponses);
+
+        Assert.Equal("found", (await Api.GetRunAsync(client, query)).GetProperty("analysis").GetProperty("status").GetString());
+        Assert.Equal(0, embeddings.Calls);
+        for (var i = 0; i < 2; i++)
+        {
+            using var response = await Explain(client, query);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var result = await Api.ReadJsonAsync(response);
+            Assert.Equal(5000, result.GetProperty("facts")[0].GetProperty("value").GetDouble());
+            var sources = result.GetProperty("sources");
+            Assert.Equal(new[] { closest, relevant }, sources.EnumerateArray().Select(source => source.GetProperty("run_id").GetGuid()));
+            Assert.Equal("private-latency-jump", sources[0].GetProperty("scenario_name").GetString());
+            Assert.Equal("latency-jump", sources[0].GetProperty("summary").GetString());
+        }
+        Assert.Equal("found", (await Api.GetRunAsync(client, closest)).GetProperty("analysis").GetProperty("status").GetString());
+        Assert.Equal(1, embeddings.Calls);
+        Assert.Equal(2, provider.Calls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Unavailable_or_invalid_embeddings_do_not_block_explanation(bool invalidResponse)
+    {
+        using var embeddings = new OpenAiStub(_ => Task.FromResult(invalidResponse
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new { data = Array.Empty<object>() }) }
+            : new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
+        using var provider = new OpenAiStub(async request =>
+        {
+            var body = await request.Content!.ReadFromJsonAsync<JsonElement>();
+            using var input = JsonDocument.Parse(body.GetProperty("input").GetString()!);
+            Assert.Equal(0, input.RootElement.GetProperty("similar_reports").GetArrayLength());
+            return ModelAnswer("""{"step_index":7,"metric":"p99_ms"}""");
+        });
+        await using var factory = NewFactory();
+        await using var host = WithProvider(factory, provider, embeddings);
+        using var client = host.CreateClient();
+        var store = host.Services.GetRequiredService<RunStore>();
+        SaveFixtureReport(store, "latency-jump", 3, DiagnosisCause.SlowResponses);
+        var query = SaveReport(store);
+
+        using var response = await Explain(client, query);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(0, (await Api.ReadJsonAsync(response)).GetProperty("sources").GetArrayLength());
+        Assert.Equal(1, embeddings.Calls);
+    }
+
+    private static double FailureP99(JsonElement report) =>
+        report.GetProperty("first_failure").GetProperty("latency_ms").GetProperty("p99").GetDouble();
+
+    private static Guid SaveFixtureReport(RunStore store, string fixtureName, uint failedStepIndex, DiagnosisCause cause)
+    {
+        using var fixture = JsonDocument.Parse(TestData.Read("results", $"{fixtureName}.json"));
+        var steps = fixture.RootElement.GetProperty("steps").EnumerateArray().Select(TestData.StepFromJson).ToArray();
+        var run = store.Create(new Scenario { Name = $"private-{fixtureName}" });
+        Assert.NotNull(store.TryStart(run.Id));
+        foreach (var step in steps)
+            Assert.True(store.AddStep(run.Id, step));
+        var previous = steps.Single(step => step.Index == failedStepIndex - 1);
+        var limit = new LimitResult(true, previous.TargetRps, failedStepIndex, [], Confirmed: true,
+            Diagnosis: new Diagnosis { Status = DiagnosisStatus.Diagnosed, Cause = cause, Explanation = fixtureName });
+        var analysis = AnalysisPlan.For(RunStatus.Completed, steps)!.FromLimit(limit);
+        Assert.True(store.TryFinish(run.Id, RunStatus.Completed, null, analysis));
+        return run.Id;
+    }
+
     private static CoordinatorFactory NewFactory(string key = "test-key") =>
         new() { Settings = { ["OPENAI_API_KEY"] = key, ["OPENAI_MODEL"] = "" } };
 
-    private static WebApplicationFactory<Program> WithProvider(CoordinatorFactory factory, OpenAiStub provider) =>
+    private static WebApplicationFactory<Program> WithProvider(
+        CoordinatorFactory factory, OpenAiStub provider, OpenAiStub? embeddings = null) =>
         factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
-            services.AddHttpClient<RunExplanationClient>().ConfigurePrimaryHttpMessageHandler(() => provider)));
+        {
+            services.AddHttpClient<RunExplanationClient>().ConfigurePrimaryHttpMessageHandler(() => provider);
+            services.AddHttpClient<RunEmbeddingSearch>().ConfigurePrimaryHttpMessageHandler(() =>
+                embeddings ?? new OpenAiStub(_ => throw new InvalidOperationException("Embeddings must not be requested")));
+        }));
 
     private static Task<HttpResponseMessage> Explain(HttpClient client, Guid id) =>
         client.PostAsJsonAsync($"/runs/{id}/explanation", new { });

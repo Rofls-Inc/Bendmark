@@ -75,6 +75,12 @@ export interface RunExplanation {
     value: number
   }[]
   experiment: string
+  sources?: {
+    run_id: string
+    scenario_name: string | null
+    finished_at: string | null
+    summary: string
+  }[]
 }
 
 export interface Run {
