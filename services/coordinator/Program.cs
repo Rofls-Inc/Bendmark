@@ -69,6 +69,7 @@ builder.Services.AddHttpClient(TelemetryOptions.SectionName, (services, client) 
     UseCookies = false,
 }).RemoveAllLoggers();
 builder.Services.AddSingleton<TelemetryCollector>();
+builder.Services.AddSingleton<RunMlClassifier>();
 
 builder.Services.AddHttpClient<RunExplanationClient>(client =>
 {
@@ -145,8 +146,8 @@ app.MapGet("/runs", (int? limit, Guid? before, RunStore store) =>
         });
 });
 
-app.MapGet("/runs/{id:guid}", (Guid id, RunStore store) =>
-    store.Get(id) is { } run ? Results.Ok(run) : Results.NotFound());
+app.MapGet("/runs/{id:guid}", (Guid id, RunStore store, RunMlClassifier classifier) =>
+    store.Get(id) is { } run ? Results.Ok(run with { MlDiagnosis = classifier.Predict(run) }) : Results.NotFound());
 
 // result.json для запуска анализатора из командной строки
 app.MapGet("/runs/{id:guid}/result", (Guid id, RunStore store) => store.Get(id, includeTelemetry: false) switch

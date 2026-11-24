@@ -178,6 +178,23 @@ describe('RunPage', () => {
     expect(link.getAttribute('href')).toBe(`/api/runs/${ID}/result`)
   })
 
+  it('показывает оценку ML и её замеры рядом с диагнозом', async () => {
+    mockFetch(() => json(200, run('completed', 4, {
+      ml_diagnosis: {
+        label: 'saturation',
+        measurements: { peak_p99_ms: 1667.769, error_fraction: 0, peak_queue_length: 20, rejected_fraction: 0 },
+      },
+    })))
+    renderPage()
+
+    const panel = await screen.findByRole('region', { name: 'Экспериментальная оценка ML' })
+    expect(within(panel).getByText('Насыщение')).toBeTruthy()
+    expect(within(panel).getByText('Максимум в очереди')).toBeTruthy()
+    expect(within(panel).getByText('20')).toBeTruthy()
+    expect(within(panel).getAllByText('0 %')).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: 'Диагноз' })).toBeTruthy()
+  })
+
   it('показывает успешные ответы в окне и отличает ноль от пропущенного значения', async () => {
     mockFetch(() => json(200, run('completed', 3, {
       steps: [
