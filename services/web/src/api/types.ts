@@ -83,6 +83,16 @@ export interface RunExplanation {
   }[]
 }
 
+export interface MlRunDiagnosis {
+  label: 'healthy' | 'reject' | 'saturation' | 'slow'
+  measurements: {
+    peak_p99_ms: number
+    error_fraction: number
+    peak_queue_length: number
+    rejected_fraction: number
+  }
+}
+
 export interface Run {
   id: string
   scenario: Scenario
@@ -95,6 +105,7 @@ export interface Run {
   steps: StepResult[]
   // null, пока прогон не завершён, и у failed или без ступеней
   analysis: Analysis | null
+  ml_diagnosis?: MlRunDiagnosis
 }
 
 // Строка списка GET /runs: без сценария и ступеней

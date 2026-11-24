@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="models/emulator-nearest-centroid.json" LogicalName="Bendmark.EmulatorMlModel" />
     <!-- Клиенты из общих контрактов. Классы internal: тестовый проект генерирует из тех же
          .proto серверные заготовки, и одноимённые публичные типы конфликтовали бы.
          Сборка в Docker (#36) должна идти из корня репозитория, чтобы proto/ был в контексте -->

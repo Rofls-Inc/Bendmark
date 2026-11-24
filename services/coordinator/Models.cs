@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Bendmark.Coordinator;
 
 public record Target
@@ -47,4 +49,6 @@ public sealed record Run
     // Поиск предела (#34): null, пока прогон не завершён, и у failed или без ступеней
     public Analysis? Analysis { get; init; }
     public RunTelemetry Telemetry { get; init; } = RunTelemetry.Disabled;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public MlRunDiagnosis? MlDiagnosis { get; init; }
 }

@@ -381,6 +381,13 @@ target:
 `run_id`, время получения координатором в UTC `observed_at` и данные
 источника в `snapshot`, включая его собственное время `captured_at`.
 
+Для завершённого прогона эмулятора `http://emulator:8080` с полными замерами
+и телеметрией `GET /runs/{id}` добавляет `ml_diagnosis` с полями `label` и
+`measurements`. В `measurements` входят `peak_p99_ms`, `error_fraction`,
+`peak_queue_length` и `rejected_fraction`. Предсказание считается при чтении
+отчёта. В сборку включён объект `model` из `evaluation.json` эксперимента #95,
+обученный на восьми прогонах эмулятора.
+
 | `telemetry.status` | Значение |
 | --- | --- |
 | `disabled` | Сбор не был включён для этого прогона |
