@@ -164,6 +164,8 @@ public sealed class RunExplanationTests
         await using var host = WithProvider(factory, provider, embeddings);
         using var client = host.CreateClient();
         var store = host.Services.GetRequiredService<RunStore>();
+        SaveFixtureReport(store, "latency-jump", 3, DiagnosisCause.SlowResponses);
+        SaveFixtureReport(store, "latency-jump", 3, DiagnosisCause.SlowResponses);
         var closest = SaveFixtureReport(store, "latency-jump", 3, DiagnosisCause.SlowResponses);
         var relevant = SaveReport(store);
         SaveFixtureReport(store, "inconclusive", 3, DiagnosisCause.Inconclusive);

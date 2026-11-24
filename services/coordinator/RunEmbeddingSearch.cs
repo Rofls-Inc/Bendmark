@@ -33,7 +33,10 @@ public sealed class RunEmbeddingSearch(HttpClient client, RunStore store, ILogge
         try
         {
             var candidates = store.ListPastReports(run.Id, run.Analysis, CandidateLimit)
-                .Select(CreateDocument).OfType<ReportDocument>().ToArray();
+                .Select(CreateDocument)
+                .OfType<ReportDocument>()
+                .DistinctBy(document => document.Fingerprint)
+                .ToArray();
             if (candidates.Length == 0)
                 return [];
 
