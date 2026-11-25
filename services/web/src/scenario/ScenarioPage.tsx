@@ -1,7 +1,8 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router'
 import { ValidationError, createRun } from '../api/client'
 import type { Scenario } from '../api/types'
+import { Field } from '../components/Field'
 import { State } from '../components/State'
 import { refreshRecent } from '../run/recent'
 import { formatDuration, formatNumber } from '../run/view'
@@ -206,33 +207,5 @@ function Plan({ steps, method, url }: { steps: { target_rps: number; duration_se
         <dd>{formatNumber(max)} запр/с</dd>
       </dl>
     </>
-  )
-}
-
-interface FieldProps {
-  label: string
-  unit?: string
-  hint?: string
-  error?: string
-  // Не блокирует запуск; показывается, только если нет ошибки
-  warning?: string
-  children: ReactNode
-}
-
-function Field({ label, unit, hint, error, warning, children }: FieldProps) {
-  const state = error ? ' invalid' : warning ? ' warning' : ''
-  return (
-    <label className={`field${state}`}>
-      <span className="label">{label}</span>
-      <span className="control">
-        {children}
-        {unit && <span className="unit">{unit}</span>}
-      </span>
-      {error
-        ? <span className="error">{error}</span>
-        : warning
-          ? <span className="warning-text">{warning}</span>
-          : hint && <span className="hint">{hint}</span>}
-    </label>
   )
 }

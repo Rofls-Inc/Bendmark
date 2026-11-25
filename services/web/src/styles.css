@@ -582,6 +582,67 @@ main {
   grid-template-columns: 96px minmax(0, 1fr);
 }
 
+.lab-modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 175px), 1fr));
+  gap: var(--s-2);
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.lab-modes legend {
+  padding: 0 0 var(--s-2);
+}
+
+.lab-mode {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+
+.lab-mode:has(:checked),
+.lab-mode:focus-within {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+.lab-mode input {
+  flex: 0 0 auto;
+  margin: 3px 0 0;
+  accent-color: var(--accent);
+}
+
+.lab-mode small {
+  display: block;
+  margin-top: var(--s-1);
+  color: var(--text-3);
+}
+
+.lab-options summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--text-2);
+}
+
+.lab-options[open] summary {
+  margin-bottom: var(--s-3);
+}
+
+.lab-saved {
+  color: var(--ok);
+  font-size: var(--fs-dense);
+}
+
+.lab-url {
+  overflow-wrap: anywhere;
+}
+
 .field {
   display: flex;
   flex-direction: column;

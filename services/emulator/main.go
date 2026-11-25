@@ -97,42 +97,22 @@ func parseConfig(args []string, getenv func(string) string) (config, error) {
 	if *healthcheck != "" {
 		return config{healthcheck: *healthcheck}, nil
 	}
-	switch *mode {
-	case modeHealthy, modeReject, modeSaturation, modeSlow:
-	default:
-		return config{}, fmt.Errorf("unsupported mode %q: use healthy, reject, saturation or slow", *mode)
-	}
 	if _, _, err := net.SplitHostPort(*listen); err != nil {
 		return config{}, fmt.Errorf("-listen must be host:port: %w", err)
 	}
-	duration, err := time.ParseDuration(*serviceTime)
-	if err != nil {
-		return config{}, fmt.Errorf("invalid -service-time: %w", err)
-	}
-	if duration < 0 {
-		return config{}, fmt.Errorf("-service-time must not be negative")
-	}
-	if *mode != modeHealthy && duration == 0 {
-		return config{}, fmt.Errorf("-service-time must be positive in pool modes")
-	}
 	workerCount, err := strconv.Atoi(*workers)
-	if err != nil || workerCount <= 0 {
+	if err != nil {
 		return config{}, fmt.Errorf("-workers must be a positive integer")
 	}
 	queue, err := strconv.Atoi(*queueSize)
-	if err != nil || queue <= 0 {
+	if err != nil {
 		return config{}, fmt.Errorf("-queue-size must be a positive integer")
 	}
-	extraDelay, err := time.ParseDuration(*slowDelay)
-	if err != nil || extraDelay <= 0 {
-		return config{}, fmt.Errorf("-slow-delay must be a positive duration, e.g. 5s")
-	}
-	noise, err := parseNoise(*jitter, *outlierRate, *outlierDelay, *seed, duration)
-	if err != nil {
-		return config{}, err
-	}
-	return config{
-		listen: *listen, mode: *mode, serviceTime: duration,
-		workers: workerCount, queueSize: queue, slowDelay: extraDelay, noise: noise,
-	}, nil
+	cfg, err := (settings{
+		Mode: *mode, ServiceTime: *serviceTime, Workers: workerCount, QueueSize: queue,
+		SlowDelay: *slowDelay, Jitter: *jitter, OutlierRate: *outlierRate, OutlierDelay: *outlierDelay,
+		Seed: *seed,
+	}).config()
+	cfg.listen = *listen
+	return cfg, err
 }
