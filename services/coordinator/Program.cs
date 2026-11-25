@@ -70,6 +70,16 @@ builder.Services.AddHttpClient(TelemetryOptions.SectionName, (services, client) 
 }).RemoveAllLoggers();
 builder.Services.AddSingleton<TelemetryCollector>();
 builder.Services.AddSingleton<RunMlClassifier>();
+builder.Services.AddHttpClient(EmulatorLab.ClientName, client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(3);
+    client.MaxResponseContentBufferSize = 8 * 1024;
+}).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AllowAutoRedirect = false,
+    UseCookies = false,
+});
+builder.Services.AddSingleton<EmulatorLab>();
 
 builder.Services.AddHttpClient<RunExplanationClient>(client =>
 {
@@ -111,7 +121,12 @@ var app = builder.Build();
 // Проверка живости для healthcheck в docker-compose.yml
 app.MapHealthChecks("/health");
 
-app.MapPost("/runs", async (HttpRequest request, RunStore store, RunQueue queue, AgentGroup agents) =>
+app.MapGet("/emulator/config", (EmulatorLab lab, CancellationToken token) => lab.ReadAsync(token));
+app.MapPut("/emulator/config", (HttpRequest request, EmulatorLab lab, RunStore store, CancellationToken token) =>
+    lab.UpdateAsync(request, store, token));
+
+app.MapPost("/runs", async (HttpRequest request, RunStore store, RunQueue queue, AgentGroup agents,
+    EmulatorLab lab, CancellationToken token) =>
 {
     var (scenario, error) = await ScenarioReader.ReadAsync(request);
     if (error is not null)
@@ -121,8 +136,7 @@ app.MapPost("/runs", async (HttpRequest request, RunStore store, RunQueue queue,
     if (errors.Count > 0)
         return Results.ValidationProblem(errors);
 
-    var run = store.Create(scenario!, agents.Count);
-    queue.Enqueue(run.Id);
+    var run = await lab.QueueRunAsync(scenario!, agents.Count, store, queue, token);
     return Results.Created($"/runs/{run.Id}", new { run.Id, run.Status });
 });
 

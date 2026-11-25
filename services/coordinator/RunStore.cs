@@ -133,6 +133,23 @@ public sealed class RunStore
         }
     }
 
+    internal bool HasPendingTarget(Func<string?, bool> matches)
+    {
+        lock (_gate)
+        {
+            using var connection = Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT scenario FROM runs WHERE status IN ('created', 'running')";
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                if (matches(Deserialize<Scenario>(reader, 0)?.Target?.Url))
+                    return true;
+            }
+            return false;
+        }
+    }
+
     // Список от новых к старым. before - id прогона, после которого продолжить;
     // null, если такого прогона нет
     public RunPage? List(int limit, Guid? before)

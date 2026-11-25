@@ -14,6 +14,26 @@ export interface Step {
   duration_seconds: number
 }
 
+export type EmulatorMode = 'healthy' | 'reject' | 'saturation' | 'slow'
+
+export interface EmulatorSettings {
+  mode: EmulatorMode
+  service_time: string
+  workers: number
+  queue_size: number
+  slow_delay: string
+  jitter: string
+  outlier_rate: string
+  outlier_delay: string
+  seed: string
+}
+
+export interface EmulatorConfiguration {
+  target_url: string
+  capacity_rps: number
+  settings: EmulatorSettings
+}
+
 export interface Scenario {
   name: string
   target: Target

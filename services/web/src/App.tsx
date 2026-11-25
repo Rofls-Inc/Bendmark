@@ -5,6 +5,7 @@ import { Logo } from './components/Logo'
 import { State } from './components/State'
 import { ThemeSelect } from './components/ThemeSelect'
 import { DEMO_RUN_ID } from './demo/demoRun'
+import { EmulatorLabPage } from './lab/EmulatorLabPage'
 import { refreshRecent, useRecentRuns } from './run/recent'
 import { formatNumber } from './run/view'
 import { ScenarioPage } from './scenario/ScenarioPage'
@@ -30,6 +31,7 @@ export function App() {
         <Routes>
           {/* key: каждый переход на форму начинает её заново, в том числе после «Повторить» */}
           <Route path="/" element={<ScenarioPage key={location.key} />} />
+          <Route path="/lab" element={<EmulatorLabPage />} />
           <Route
             path="/runs/:id"
             element={
@@ -88,6 +90,14 @@ function Sidebar() {
               <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
             Новый прогон
+          </NavLink>
+
+          <NavLink to="/lab">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M6 2h4M7 2v4l-3.7 5.7A1.5 1.5 0 0 0 4.6 14h6.8a1.5 1.5 0 0 0 1.3-2.3L9 6V2M5 10h6"
+                stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Лаборатория
           </NavLink>
 
           <span className="nav-group">Недавние</span>

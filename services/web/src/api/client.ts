@@ -1,4 +1,4 @@
-import type { Run, RunExplanation, RunList, RunStatus, Scenario } from './types'
+import type { EmulatorConfiguration, EmulatorSettings, Run, RunExplanation, RunList, RunStatus, Scenario } from './types'
 
 const BASE = '/api'
 
@@ -45,6 +45,24 @@ export async function createRun(scenario: Scenario): Promise<{ id: string; statu
   if (response.status === 201)
     return response.json()
   throw await toError(response)
+}
+
+export async function getEmulatorConfiguration(signal?: AbortSignal): Promise<EmulatorConfiguration> {
+  const response = await request(`${BASE}/emulator/config`, { signal })
+  if (!response.ok)
+    throw await toError(response)
+  return response.json()
+}
+
+export async function updateEmulatorConfiguration(settings: EmulatorSettings): Promise<EmulatorConfiguration> {
+  const response = await request(`${BASE}/emulator/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  })
+  if (!response.ok)
+    throw await toError(response)
+  return response.json()
 }
 
 export async function getRun(id: string, signal?: AbortSignal): Promise<Run> {

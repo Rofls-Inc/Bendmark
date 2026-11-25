@@ -388,6 +388,8 @@ docker compose run --rm analyzer-cli testdata/results/limit-found.json
 Эмулятор подключается через `docker compose --profile emulator up --build`.
 Адрес цели для агентов — `http://emulator:8080/work`. Режимы и настройки
 описаны в [README эмулятора](services/emulator/README.md#docker-compose).
+Страница **«Лаборатория»** (`/lab`) позволяет изменить режим без перезапуска
+эмулятора и запустить готовый сценарий или открыть его в форме прогона.
 
 Остановить всё: `docker compose down`. База ABStock и прогоны координатора остаются в томах `abstock-data` и `coordinator-data`, удалить их можно через `docker compose down -v`.
 
