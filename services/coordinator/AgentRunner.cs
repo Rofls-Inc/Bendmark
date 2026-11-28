@@ -139,6 +139,9 @@ public sealed class GrpcAgentRunner : IAgentRunner
         if (successfulInStep is { } count && (count > step.RequestCount || errors > step.RequestCount - count))
             throw new AgentProtocolException($"Счётчик успешных ответов в окне превышает число успешных запросов в ступени {step.Index}");
 
+        var hasLoadWindow = step.HasLoadStartedUnixUs && step.HasLoadEndedUnixUs &&
+            step.LoadStartedUnixUs > 0 && step.LoadStartedUnixUs < step.LoadEndedUnixUs;
+
         return StepResultDto.Create(
             step.Index,
             step.TargetRps,
@@ -148,7 +151,11 @@ public sealed class GrpcAgentRunner : IAgentRunner
             new LatencyDto { P50 = latency?.P50 ?? 0, P90 = latency?.P90 ?? 0, P99 = latency?.P99 ?? 0 },
             errors,
             step.SkippedCount,
-            successfulInStep);
+            successfulInStep) with
+        {
+            LoadStartedUnixUs = hasLoadWindow ? step.LoadStartedUnixUs : null,
+            LoadEndedUnixUs = hasLoadWindow ? step.LoadEndedUnixUs : null,
+        };
     }
 }
 

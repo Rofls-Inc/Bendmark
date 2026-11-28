@@ -18,6 +18,24 @@ message FindLimitRequest {
   repeated StepResult steps = 1;
   // May be absent: use the documented defaults for every omitted threshold.
   LimitOptions options = 2;
+  // Optional target snapshots in polling order, grouped by step index.
+  // Samples outside the actual load window are excluded by the coordinator.
+  repeated StepTelemetry telemetry = 3;
+}
+
+message StepTelemetry {
+  uint32 step_index = 1;
+  repeated TargetSnapshot snapshots = 2;
+}
+
+message TargetSnapshot {
+  int64 captured_unix_us = 1;
+  int64 started_unix_us = 2;
+  optional int64 workers_busy = 3;
+  optional int64 workers_total = 4;
+  optional int64 queue_length = 5;
+  optional int64 queue_capacity = 6;
+  optional int64 completed_total = 7;
 }
 
 message LimitOptions {
@@ -31,7 +49,7 @@ message LimitOptions {
 
 message FindLimitResponse {
   Limit limit = 1;
-  // Always set by the analyzer. Built from StepResult only: v1 has no service metrics.
+  // Always set by the analyzer. May include evidence from target telemetry.
   Diagnosis diagnosis = 2;
 }
 
@@ -58,7 +76,7 @@ message Limit {
   bool confirmed = 5;
 }
 
-// Why the service hit its limit, judged by external signs only.
+// Why the service hit its limit.
 message Diagnosis {
   DiagnosisStatus status = 1;
   // Set only when status=DIAGNOSIS_STATUS_DIAGNOSED.
@@ -80,7 +98,7 @@ enum DiagnosisStatus {
   DIAGNOSIS_STATUS_DIAGNOSED = 1;
   // Limit.found=false: nothing to explain.
   DIAGNOSIS_STATUS_NO_LIMIT = 2;
-  // Fewer than two steps before Limit.failed_step_index: no trend to compare.
+  // Fewer than two steps before Limit.failed_step_index and no telemetry confirmation.
   DIAGNOSIS_STATUS_TOO_FEW_STEPS = 3;
 }
 
@@ -92,7 +110,7 @@ enum Cause {
   // the service cannot answer in time (queue, resources).
   CAUSE_SLOW_RESPONSES = 2;
   // Throughput stops growing while p99 rises smoothly and errors stay low:
-  // the service is saturated (CPU, connection pool).
+  // the service is saturated (CPU, connection pool). Can also be confirmed by target telemetry.
   CAUSE_SATURATION = 3;
   // Signs contradict each other or match no rule. Confidence is always LOW.
   CAUSE_INCONCLUSIVE = 4;

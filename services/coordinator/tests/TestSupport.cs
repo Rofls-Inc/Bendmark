@@ -92,7 +92,9 @@ public sealed class FakeAnalyzer : IAnalyzer
     public Func<IReadOnlyList<StepResultDto>, Task<LimitResult>> Respond { get; set; } =
         steps => Task.FromResult(new LimitResult(false, steps[^1].TargetRps, null, []));
 
-    public Task<LimitResult> FindLimitAsync(IReadOnlyList<StepResultDto> steps, CancellationToken cancellationToken)
+    public Task<LimitResult> FindLimitAsync(
+        IReadOnlyList<StepResultDto> steps, CancellationToken cancellationToken,
+        IReadOnlyList<TelemetrySample>? snapshots = null)
     {
         _calls.Enqueue(steps);
         return Respond(steps);

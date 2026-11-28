@@ -101,7 +101,8 @@ public sealed class RunExecutor(
         Analysis analysis;
         try
         {
-            var limit = await analyzer.FindLimitAsync(plan.Steps, stoppingToken);
+            var snapshots = store.Get(runId)?.Telemetry.Snapshots ?? [];
+            var limit = await analyzer.FindLimitAsync(plan.Steps, stoppingToken, snapshots);
             analysis = plan.FromLimit(limit);
         }
         catch (RpcException e)

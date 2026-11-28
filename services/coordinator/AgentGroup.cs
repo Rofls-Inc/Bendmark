@@ -99,6 +99,13 @@ public static class StepMerger
                 P99 = measured.Max(l => l.P99),
             };
 
+        // Max и Min пропускают null, поэтому общее окно учитываем только тогда,
+        // когда каждый агент передал время начала и конца подачи нагрузки.
+        var loadStart = parts.Max(part => part.LoadStartedUnixUs);
+        var loadEnd = parts.Min(part => part.LoadEndedUnixUs);
+        var hasCommonWindow = loadStart < loadEnd &&
+            parts.All(part => part.LoadStartedUnixUs.HasValue && part.LoadEndedUnixUs.HasValue);
+
         return StepResultDto.Create(
             index,
             planned.TargetRps,
@@ -108,6 +115,10 @@ public static class StepMerger
             latency,
             errors,
             skipped,
-            successfulInStep);
+            successfulInStep) with
+        {
+            LoadStartedUnixUs = hasCommonWindow ? loadStart : null,
+            LoadEndedUnixUs = hasCommonWindow ? loadEnd : null,
+        };
     }
 }

@@ -1,8 +1,12 @@
 services:
+  coordinator:
+    environment:
+      Telemetry__IntervalSeconds: "0.17"
   emulator:
     command:
       - "-mode=${SMOKE_EMULATOR_MODE:-healthy}"
       - "-workers=3"
+      - "-queue-size=4"
       - "-service-time=250ms"
       - "-jitter=0s"
       - "-outlier-rate=0"
