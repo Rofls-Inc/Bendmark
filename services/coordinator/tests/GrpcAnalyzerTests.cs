@@ -57,6 +57,45 @@ public class GrpcAnalyzerTests
     }
 
     [Fact]
+    public async Task Sends_only_snapshots_inside_analyzed_load_windows()
+    {
+        var analyzer = new ScriptedAnalyzer
+        {
+            Respond = _ => new Proto.FindLimitResponse { Limit = new Proto.Limit { Found = false } },
+        };
+        await using var host = await AnalyzerHost.StartAsync(analyzer);
+        var epoch = DateTime.UnixEpoch;
+        var runId = Guid.NewGuid();
+        var snapshots = new[] { 9, 10, 12, 13, 14, 16, 17, 19, 20 }.Select(seconds =>
+        {
+            var captured = epoch.AddSeconds(seconds);
+            // observed_at deliberately falls outside both windows.
+            return new TelemetrySample(runId, captured.AddSeconds(30),
+                new TelemetrySnapshot(1, captured, epoch.AddSeconds(1), 0, null, 0, 4, seconds, null));
+        }).ToArray();
+
+        await host.CreateClient().FindLimitAsync(
+            [
+                TestData.Step(1, 100) with { LoadStartedUnixUs = 10_000_000, LoadEndedUnixUs = 13_000_000 },
+                TestData.Step(2, 150) with { LoadStartedUnixUs = 17_000_000, LoadEndedUnixUs = 20_000_000 },
+                TestData.Step(3, 200),
+            ],
+            CancellationToken.None, snapshots);
+
+        var telemetry = analyzer.Received!.Telemetry;
+        Assert.Equal(new uint[] { 1, 2 }, telemetry.Select(step => step.StepIndex));
+        Assert.Equal(new long[] { 10_000_000, 12_000_000 }, telemetry[0].Snapshots.Select(s => s.CapturedUnixUs));
+        Assert.Equal(new long[] { 17_000_000, 19_000_000 }, telemetry[1].Snapshots.Select(s => s.CapturedUnixUs));
+        var sample = telemetry[0].Snapshots[0];
+        Assert.Equal(1_000_000L, sample.StartedUnixUs);
+        Assert.Equal(10L, sample.CompletedTotal);
+        Assert.True(sample.HasWorkersBusy);
+        Assert.Equal(0L, sample.WorkersBusy);
+        Assert.False(sample.HasWorkersTotal);
+        Assert.True(sample.HasQueueLength);
+    }
+
+    [Fact]
     public async Task Absent_optional_fields_become_null()
     {
         var analyzer = new ScriptedAnalyzer

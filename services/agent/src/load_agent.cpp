@@ -33,6 +33,8 @@ StepResult compute_step_result(int index, const StepConfig& step, const RunResul
     s.duration_seconds = step.duration_seconds;
     s.skipped_count = run.skipped;
     s.successful_completed_in_step = run.successful_completed_in_step;
+    s.load_started_unix_us = run.load_started_unix_us;
+    s.load_ended_unix_us = run.load_ended_unix_us;
 
     std::vector<long> latencies;
     latencies.reserve(run.requests.size());
@@ -192,6 +194,9 @@ RunResult run_one_step(const HttpRequest& request,
 
     const auto interval = std::chrono::duration<double>(1.0 / step.target_rps);
     const auto start_time = std::chrono::steady_clock::now();
+    const auto utc_start = std::chrono::system_clock::now();
+    out.load_started_unix_us = std::chrono::duration_cast<std::chrono::microseconds>(
+        utc_start.time_since_epoch()).count();
     const auto duration = std::chrono::duration<double>(step.duration_seconds);
     // Workers read this only after taking a tick queued under work_mtx.
     end_time = start_time + std::chrono::duration_cast<std::chrono::steady_clock::duration>(duration);
@@ -221,6 +226,10 @@ RunResult run_one_step(const HttpRequest& request,
 
         next_tick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval);
     }
+
+    const auto scheduling_end = std::min(std::chrono::steady_clock::now(), end_time);
+    out.load_ended_unix_us = out.load_started_unix_us +
+        std::chrono::duration_cast<std::chrono::microseconds>(scheduling_end - start_time).count();
 
     {
         std::lock_guard<std::mutex> lk(work_mtx);
@@ -339,6 +348,10 @@ bool write_result_json(const std::string& path, const ScenarioResult& result) {
         *out << "      \"successful_rps_in_step\": ";
         write_double_exact(*out, s.duration_seconds > 0
             ? s.successful_completed_in_step / s.duration_seconds : 0.0);
+        if (s.load_ended_unix_us > s.load_started_unix_us) {
+            *out << ",\n      \"load_started_unix_us\": " << s.load_started_unix_us;
+            *out << ",\n      \"load_ended_unix_us\": " << s.load_ended_unix_us;
+        }
         *out << "\n";
         *out << "    }";
         if (i + 1 < result.steps.size()) *out << ",";

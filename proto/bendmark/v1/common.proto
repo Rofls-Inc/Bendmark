@@ -63,6 +63,11 @@ message StepResult {
   // after its deadline. Use with duration_seconds to see whether the actual
   // completion rate grows across saturation steps.
   optional uint64 successful_completed_in_step = 9;
+  // Actual scheduling window [start, end), UTC microseconds since the Unix epoch.
+  // For matching target telemetry; excludes draining after scheduling ends.
+  // Both fields may be absent (old agents or scheduling windows shorter than 1 us).
+  optional int64 load_started_unix_us = 10;
+  optional int64 load_ended_unix_us = 11;
 }
 
 message LatencyPercentiles {

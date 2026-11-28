@@ -16,6 +16,7 @@ import grpc
 from .diagnosis import Cause, Confidence, Diagnosis, Status, diagnose
 from .limit import LimitResult, find_limit
 from .result import Step
+from .telemetry import confirm_saturation
 
 GENERATED = Path(__file__).resolve().parents[1] / "generated"
 if not (GENERATED / "bendmark" / "v1" / "analyzer_pb2.py").exists():
@@ -165,6 +166,7 @@ def analyze(request) -> "analyzer_pb2.FindLimitResponse":
     except ValueError as error:
         raise _invalid(str(error)) from error
     diagnosis = diagnose(steps, limit, **thresholds)
+    diagnosis = confirm_saturation(steps, limit, diagnosis, list(request.telemetry), thresholds["min_gain"])
     return analyzer_pb2.FindLimitResponse(limit=_to_limit(limit), diagnosis=_to_diagnosis(diagnosis))
 
 

@@ -33,6 +33,14 @@ public sealed record StepResultDto
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? SuccessfulRpsInStep => DurationSeconds > 0 ? SuccessfulCompletedInStep / DurationSeconds : null;
 
+    [JsonPropertyName("load_started_unix_us")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? LoadStartedUnixUs { get; init; }
+
+    [JsonPropertyName("load_ended_unix_us")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? LoadEndedUnixUs { get; init; }
+
     // rate_percent считается из счётчиков, а не берётся у агента: так же делает proto/result_json.py
     public static StepResultDto Create(
         uint index,

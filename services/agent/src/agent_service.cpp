@@ -156,6 +156,11 @@ grpc::Status AgentServiceImpl::Run(grpc::ServerContext* ctx,
         out->set_successful_completed_in_step(
             static_cast<uint64_t>(sr.successful_completed_in_step));
 
+        if (sr.load_ended_unix_us > sr.load_started_unix_us) {
+            out->set_load_started_unix_us(sr.load_started_unix_us);
+            out->set_load_ended_unix_us(sr.load_ended_unix_us);
+        }
+
         writer->Write(resp);
     };
 

@@ -169,6 +169,16 @@ jobs:
           python3 scripts/compose_smoke.py --base-url http://localhost:5173/api \
             --scenario testdata/scenarios/smoke-emulator.json --emulator-mode reject --expected-limit-rps 12
 
+      - name: Saved emulator report explains saturation with telemetry
+        timeout-minutes: 2
+        env:
+          SMOKE_EMULATOR_MODE: saturation
+        run: |
+          docker compose -f docker-compose.yml -f .github/compose.emulator-smoke.yml \
+            up -d --wait --wait-timeout 60 coordinator emulator
+          python3 scripts/compose_smoke.py --base-url http://localhost:5080 \
+            --scenario testdata/scenarios/smoke-saturation.json --emulator-mode saturation --expected-limit-rps 12
+
       - name: Logs
         if: failure()
         run: docker compose --profile emulator logs

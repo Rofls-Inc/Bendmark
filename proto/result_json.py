@@ -27,6 +27,10 @@ def step_to_json(step) -> dict:
         result["successful_completed_in_step"] = successful
         if duration > 0:
             result["successful_rps_in_step"] = successful / duration
+    if (step.HasField("load_started_unix_us") and step.HasField("load_ended_unix_us")
+            and 0 < step.load_started_unix_us < step.load_ended_unix_us):
+        result["load_started_unix_us"] = int(step.load_started_unix_us)
+        result["load_ended_unix_us"] = int(step.load_ended_unix_us)
     return result
 
 

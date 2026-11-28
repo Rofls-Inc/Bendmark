@@ -215,3 +215,77 @@ def test_non_finite_metrics_are_invalid(stub):
     steps = fixture_steps("no-limit.json")
     steps[1].latency_ms.p99 = math.inf
     assert call_error(stub, request(steps)).code() == grpc.StatusCode.INVALID_ARGUMENT
+
+
+def saturation_telemetry():
+    # На ступенях 3 и 4 агент видит HTTP-ошибки. Цель в обоих окнах
+    # обрабатывает столько же запросов в секунду, как на ступени 2.
+    groups = []
+    for index, completed, queues in [(2, 1000, (0, 0, 0)), (3, 2000, (1, 4, 4)), (4, 3000, (4, 4, 4))]:
+        groups.append(analyzer_pb2.StepTelemetry(
+            step_index=index,
+            snapshots=[
+                analyzer_pb2.TargetSnapshot(
+                    captured_unix_us=(index * 10 + offset) * 1_000_000,
+                    started_unix_us=1_000_000,
+                    workers_busy=2,
+                    workers_total=2,
+                    queue_length=queue,
+                    queue_capacity=4,
+                    completed_total=completed + offset * 200,
+                )
+                for offset, queue in enumerate(queues)
+            ],
+        ))
+    return groups
+
+
+def test_target_telemetry_explains_http_errors_as_saturation(stub):
+    req = request(fixture_steps("rejecting.json"))
+    baseline = stub.FindLimit(req, timeout=5)
+    assert baseline.diagnosis.cause == analyzer_pb2.CAUSE_REJECTING
+
+    req.telemetry.extend(saturation_telemetry())
+    response = stub.FindLimit(req, timeout=5)
+    assert response.limit == baseline.limit
+    assert response.diagnosis.cause == analyzer_pb2.CAUSE_SATURATION
+    assert response.diagnosis.confidence == analyzer_pb2.CONFIDENCE_HIGH
+    evidence = " ".join(response.diagnosis.evidence)
+    assert "ступени 2 → 3" in evidence
+    assert "ступени 3 → 4" in evidence
+    assert "completed_total 2000 → 2400 за 2.000 с" in evidence
+    assert "пул заполнен (2/2 обработчиков)" in evidence
+    assert "очередь выросла с 1 до 4" in evidence
+    assert "очередь заполнена (4/4 запросов)" in evidence
+
+
+@pytest.mark.parametrize("invalid", ("restart", "reset", "duplicate_time", "missing_counter", "empty_queue",
+                                     "free_workers", "growing_rate", "one_sample"))
+def test_unusable_or_unconvincing_telemetry_preserves_diagnosis(stub, invalid):
+    req = request(fixture_steps("rejecting.json"))
+    baseline = stub.FindLimit(req, timeout=5)
+    groups = saturation_telemetry()
+    samples = groups[-1].snapshots
+    if invalid == "restart":
+        for sample in samples:
+            sample.started_unix_us = 35_000_000
+    elif invalid == "reset":
+        samples[1].completed_total = 0
+    elif invalid == "duplicate_time":
+        samples[1].captured_unix_us = samples[0].captured_unix_us
+    elif invalid == "missing_counter":
+        for sample in samples:
+            sample.ClearField("completed_total")
+    elif invalid == "empty_queue":
+        for sample in samples:
+            sample.queue_length = 0
+    elif invalid == "free_workers":
+        for sample in samples:
+            sample.workers_busy = 1
+    elif invalid == "growing_rate":
+        samples[-1].completed_total += 200
+    else:
+        del samples[1:]
+
+    req.telemetry.extend(groups)
+    assert stub.FindLimit(req, timeout=5) == baseline

@@ -41,6 +41,7 @@ void test_no_skips_with_enough_workers() {
     long long delta = std::llabs(s.request_count - expected);
     test::expect(delta <= 1, "request_count close to rps * duration");
     test::expect(s.successful_completed_in_step > 0, "successful responses are counted in the window");
+    test::expect(s.load_started_unix_us > 0 && s.load_ended_unix_us > s.load_started_unix_us, "completed step records a UTC scheduling window");
 }
 
 void test_late_success_is_excluded_from_the_window() {
@@ -55,6 +56,7 @@ void test_late_success_is_excluded_from_the_window() {
     test::expect_eq_long(result->request_count, 1, "late attempt is still included in request_count");
     test::expect_eq_long(result->error_count, 0, "late attempt succeeded");
     test::expect_eq_long(result->successful_completed_in_step, 0, "late response missed the window");
+    test::expect(result->load_ended_unix_us - result->load_started_unix_us <= 100000, "load window ends before late requests drain");
 }
 
 void test_skips_with_slow_sender_and_one_worker() {

@@ -84,12 +84,13 @@ def check_emulator_report(analysis, steps, emulator_mode, expected_limit_rps):
         )
         return
 
+    expected_cause = "saturation" if emulator_mode == "saturation" else "rejecting"
     require(
         analysis.get("status") == "found"
         and analysis.get("limit_confirmed") is True
         and diagnosis.get("status") == "diagnosed"
-        and diagnosis.get("cause") == "rejecting",
-        f"Reject emulator should report a confirmed limit with cause rejecting: {analysis}",
+        and diagnosis.get("cause") == expected_cause,
+        f"{emulator_mode} emulator should report a confirmed limit with cause {expected_cause}: {analysis}",
     )
     limit = analysis.get("limit_rps")
     require(
@@ -103,6 +104,15 @@ def check_emulator_report(analysis, steps, emulator_mode, expected_limit_rps):
         and limit == steps[failed_index - 2]["target_rps"],
         f"Expected a limit at the last good step followed by two failure steps: {analysis}",
     )
+    if emulator_mode == "saturation":
+        evidence = diagnosis.get("evidence", [])
+        for index in (failed_index, failed_index + 1):
+            require(any(f"ступени {index - 1} → {index}" in line and "completed_total" in line for line in evidence),
+                    f"Expected a measured processing rate for step {index}: {diagnosis}")
+            for measurement in ("пул заполнен", "очеред"):
+                require(any(f"Телеметрия, ступень {index}:" in line and measurement in line for line in evidence),
+                        f"Expected {measurement} measurement for step {index}: {diagnosis}")
+
     for step in steps[failed_index - 1:failed_index + 1]:
         errors = step.get("errors", {}).get("count")
         require(
@@ -130,7 +140,7 @@ def check_run(base_url, scenario, deadline, *, emulator_mode=None, expected_limi
         require(step.get("duration_seconds") == target["duration_seconds"], f"Unexpected step duration: {step}")
         require(step.get("request_count", 0) > 0, f"Step has no completed requests: {step}")
         require(step.get("skipped_count") == 0, f"Agent skipped requests: {step}")
-        if emulator_mode != "reject":
+        if emulator_mode not in {"reject", "saturation"}:
             require(step.get("errors", {}).get("count") == 0, f"Unexpected request errors: {step}")
 
     analysis = run["analysis"]
@@ -153,16 +163,16 @@ def main():
     parser.add_argument("--base-url", nargs="+", default=["http://localhost:5080", "http://localhost:5173/api"])
     parser.add_argument("--scenario", type=Path, default=Path(__file__).resolve().parents[1] / "testdata/scenarios/smoke.json")
     parser.add_argument("--timeout", type=int, default=45, help="Общий срок всех проверок, в секундах (по умолчанию 45)")
-    parser.add_argument("--emulator-mode", choices=("healthy", "reject"))
-    parser.add_argument("--expected-limit-rps", type=float, help="Расчётный предел для режима reject")
+    parser.add_argument("--emulator-mode", choices=("healthy", "reject", "saturation"))
+    parser.add_argument("--expected-limit-rps", type=float, help="Расчётный предел для режимов reject и saturation")
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
-    if args.emulator_mode == "reject":
+    if args.emulator_mode in {"reject", "saturation"}:
         if args.expected_limit_rps is None or not 0 < args.expected_limit_rps < float("inf"):
-            parser.error("reject requires a positive finite --expected-limit-rps")
+            parser.error(f"{args.emulator_mode} requires a positive finite --expected-limit-rps")
     elif args.expected_limit_rps is not None:
-        parser.error("--expected-limit-rps requires --emulator-mode reject")
+        parser.error("--expected-limit-rps requires --emulator-mode reject or saturation")
 
     started = time.monotonic()
     try:

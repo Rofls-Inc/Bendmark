@@ -8,7 +8,9 @@ namespace Bendmark.Coordinator;
 // Ошибки анализатора приходят как RpcException с кодом из контракта
 public interface IAnalyzer
 {
-    Task<LimitResult> FindLimitAsync(IReadOnlyList<StepResultDto> steps, CancellationToken cancellationToken);
+    Task<LimitResult> FindLimitAsync(
+        IReadOnlyList<StepResultDto> steps, CancellationToken cancellationToken,
+        IReadOnlyList<TelemetrySample>? snapshots = null);
 }
 
 public sealed class AnalyzerOptions
@@ -24,6 +26,9 @@ public sealed class AnalyzerOptions
 
 public sealed class GrpcAnalyzer : IAnalyzer
 {
+    // Стандартный предел размера сообщения gRPC на стороне анализатора.
+    private const int MaxRequestBytes = 4 * 1024 * 1024;
+
     private readonly Proto.AnalyzerService.AnalyzerServiceClient _client;
     private readonly AnalyzerOptions _options;
 
@@ -33,11 +38,19 @@ public sealed class GrpcAnalyzer : IAnalyzer
         _options = options.Value;
     }
 
-    public async Task<LimitResult> FindLimitAsync(IReadOnlyList<StepResultDto> steps, CancellationToken cancellationToken)
+    public async Task<LimitResult> FindLimitAsync(
+        IReadOnlyList<StepResultDto> steps, CancellationToken cancellationToken,
+        IReadOnlyList<TelemetrySample>? snapshots = null)
     {
         // options не передаём: анализатор берёт пороги по умолчанию
         var request = new Proto.FindLimitRequest();
         request.Steps.Add(steps.Select(ToProto));
+        if (snapshots is { Count: > 0 })
+        {
+            AddTelemetry(request, steps, snapshots);
+            if (request.CalculateSize() > MaxRequestBytes)
+                request.Telemetry.Clear();
+        }
 
         var response = await _client.FindLimitAsync(
             request,
@@ -95,6 +108,37 @@ public sealed class GrpcAnalyzer : IAnalyzer
         Proto.Confidence.High => DiagnosisConfidence.High,
         _ => null,
     };
+
+    private static void AddTelemetry(
+        Proto.FindLimitRequest request, IReadOnlyList<StepResultDto> steps, IReadOnlyList<TelemetrySample> snapshots)
+    {
+        var samples = snapshots.Select(sample => ToProto(sample.Snapshot)).ToArray();
+        foreach (var step in steps)
+        {
+            if (step.LoadStartedUnixUs is not { } start || step.LoadEndedUnixUs is not { } end)
+                continue;
+
+            var telemetry = new Proto.StepTelemetry { StepIndex = step.Index };
+            telemetry.Snapshots.Add(samples.Where(sample => sample.CapturedUnixUs >= start && sample.CapturedUnixUs < end));
+            if (telemetry.Snapshots.Count >= 2)
+                request.Telemetry.Add(telemetry);
+        }
+    }
+
+    private static Proto.TargetSnapshot ToProto(TelemetrySnapshot snapshot)
+    {
+        var result = new Proto.TargetSnapshot
+        {
+            CapturedUnixUs = (snapshot.CapturedAt.Ticks - DateTime.UnixEpoch.Ticks) / 10,
+            StartedUnixUs = (snapshot.StartedAt.Ticks - DateTime.UnixEpoch.Ticks) / 10,
+        };
+        if (snapshot.WorkersBusy is { } busy) result.WorkersBusy = busy;
+        if (snapshot.WorkersTotal is { } total) result.WorkersTotal = total;
+        if (snapshot.QueueLength is { } length) result.QueueLength = length;
+        if (snapshot.QueueCapacity is { } capacity) result.QueueCapacity = capacity;
+        if (snapshot.CompletedTotal is { } completed) result.CompletedTotal = completed;
+        return result;
+    }
 
     private static Proto.StepResult ToProto(StepResultDto step) => new()
     {
